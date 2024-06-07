@@ -1,5 +1,5 @@
 import inspect
-from typing import Iterator, TypeVar, Tuple, Any, Callable, TypeGuard, cast, AsyncIterator
+from typing import Iterator, TypeVar, Any, Callable, TypeGuard, cast, AsyncIterator
 
 T = TypeVar("T")
 
@@ -21,8 +21,11 @@ def merge_iterator(iterator: Iterator[T]) -> T:
     return cast(T, final_v)
 
 
-def isgeneratorfunction(func: Any) -> TypeGuard[Callable[..., Iterator]]:
-    return inspect.isgeneratorfunction(func)
+def is_generator(func: Any) -> TypeGuard[Callable[..., Iterator]]:
+    return (
+        inspect.isgeneratorfunction(func)
+        or (hasattr(func, "__call__") and inspect.isgeneratorfunction(func.__call__))
+    )
 
 
 def is_async_generator(func: Any) -> TypeGuard[Callable[..., AsyncIterator]]:

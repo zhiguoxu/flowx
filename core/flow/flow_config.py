@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
-from functools import partial
-from typing import Generator, ParamSpec, TypeVar, Callable, cast, Iterable, Any, Iterator
+from typing import Generator, ParamSpec, TypeVar, Callable, cast, Iterable, Any, Iterator, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,28 @@ class FlowConfig(BaseModel):
 
     max_concurrency: int | None = Field(default=None)
     """Maximum number of parallel calls to make."""
+
+    tags: List[str] = Field(default_factory=list)
+
+    def merge(self, other: FlowConfig | Dict) -> FlowConfig:
+        if isinstance(other, FlowConfig):
+            other = other.model_dump(exclude_unset=True)
+
+        data = self.model_dump(exclude_unset=True)
+        for key, value in other.items():
+            old_v = data[key]
+            if isinstance(value, list) and isinstance(old_v, list):
+                old_v.extend(value)
+            data[key] = value
+        return FlowConfig(**data)
+
+    def patch(self, other: FlowConfig | Dict) -> FlowConfig:
+        if isinstance(other, FlowConfig):
+            other = other.model_dump(exclude_unset=True)
+
+        data = self.model_dump(exclude_unset=True)
+        data.update(other)
+        return FlowConfig(**data)
 
 
 var_flow_config = ContextVar("flow_config", default=FlowConfig())

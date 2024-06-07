@@ -3,15 +3,16 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from concurrent.futures import wait, FIRST_COMPLETED
 from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awaitable, AsyncIterator, Union, \
-    List, Dict
+    List, Dict, Type, Tuple
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+from tenacity import stop_after_attempt, wait_exponential_jitter, retry_if_exception_type, Retrying
 
 from core.flow.addable_dict import AddableDict
-from core.flow.flow_config import var_flow_config, get_executor
-from core.flow.utils import merge_iterator, isgeneratorfunction, is_async_generator
+from core.flow.flow_config import var_flow_config, get_executor, FlowConfig
+from core.flow.utils import merge_iterator, is_async_generator, is_generator
 from core.utils.iter import safe_tee
-from core.utils.utils import filter_kwargs_by_pydantic
+from core.utils.utils import filter_kwargs_by_pydantic, filter_kwargs_by_init_or_pydantic
 
 Input = TypeVar("Input", contravariant=True)
 Output = TypeVar("Output", covariant=True)
@@ -40,13 +41,33 @@ class Flow(BaseModel, Generic[Input, Output], ABC):
     def pipe(self, *others: FlowLikeRight, name: str | None = None) -> SequenceFlow[Input, Other]:
         return SequenceFlow(self, *others, name=name)
 
+    def bind(self, **kwargs: Any) -> BindingFlow[Input, Output]:
+        return BindingFlow(bound=self, kwargs=kwargs)
+
+    def with_config(self, config: FlowConfig | None = None, **kwargs: Any) -> BindingFlow[Input, Output]:
+        return BindingFlow(
+            bound=self,
+            config=(config or FlowConfig()).merge(kwargs)
+        )
+
+    def with_retry(self, *,
+                   retry_exception_types: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception,
+                   is_wait_exponential_jitter: bool = True,
+                   max_attempt: int = 3
+                   ) -> RetryFlow[Input, Output]:
+        kwargs = filter_kwargs_by_init_or_pydantic(RetryFlow, locals())
+        return RetryFlow(bound=self, **kwargs)
+
 
 class FunctionFlow(Flow[Input, Output]):
     func: Callable[[Input], Output] | Callable[[Input], Iterator[Output]]
 
+    def __init__(self, func: Callable[[Input], Output] | Callable[[Input], Iterator[Output]]):
+        super().__init__(func=func)  # type: ignore[call-arg]
+
     def invoke(self, inp: Input) -> Output:
         output = self.func(inp)
-        if isgeneratorfunction(self.func):
+        if is_generator(self.func):
             assert isinstance(output, Iterator)
             output = cast(Output, merge_iterator(output))
 
@@ -54,7 +75,7 @@ class FunctionFlow(Flow[Input, Output]):
 
     def stream(self, inp: Input) -> Iterator[Output]:
         output = self.func(inp)
-        if isgeneratorfunction(self.func):
+        if is_generator(self.func):
             assert isinstance(output, Iterator)
             yield from output
         elif isinstance(output, Flow):
@@ -100,11 +121,13 @@ class SequenceFlow(Flow[Input, Output]):
 class ParallelFlow(Flow[Input, Dict[str, Any]]):
     steps: Mapping[str, Flow[Input, Any]]
 
-    def __init__(self, /, steps: Mapping[str, FlowLike | Mapping[str, FlowLike]] | None = None,
-                 **kwargs: FlowLike | Mapping[str, FlowLike]):
+    def __init__(self,
+                 steps: Mapping[str, FlowLike] | None = None,
+                 **kwargs: FlowLike):
         merged_steps = {**(steps or {})}
         merged_steps.update(kwargs)
-        super().__init__(steps={k: to_flow(v) for k, v in merged_steps.items()})  # type: ignore
+        steps = {k: to_flow(v) for k, v in merged_steps.items()}
+        super().__init__(steps=steps)  # type: ignore[call-arg]
 
     def invoke(self, inp: Input) -> Dict[str, Any]:
         with get_executor() as executor:
@@ -146,6 +169,107 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
                         pass
 
 
+class GeneratorFlow(Flow[Input, Output]):
+    generator: Callable[[Iterator[Input]], Iterator[Output]] | None = None
+    a_generator: Callable[[AsyncIterator[Input]], AsyncIterator[Output]] | None = None
+
+    def __init__(self,
+                 generator: Union[
+                     Callable[[Iterator[Input]], Iterator[Output]],
+                     Callable[[AsyncIterator[Input]], AsyncIterator[Output]],
+                 ]):
+        try:
+            name = generator.__name__
+        except AttributeError as e:
+            ...
+
+        if is_generator(generator):
+            ...
+        elif is_async_generator(generator):
+            a_generator = generator
+            generator = None  # type: ignore[assignment]
+        else:
+            raise TypeError(f"GeneratorFlow do not support: {type(generator)}")
+
+        kwargs = filter_kwargs_by_pydantic(GeneratorFlow, locals())
+        super().__init__(**kwargs)
+
+    def invoke(self, inp: Input) -> Output:
+        return merge_iterator(self.stream(inp))
+
+    def stream(self, inp: Input) -> Iterator[Output]:
+        return self.transform(iter([inp]))
+
+    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
+        # todo support self.a_transform
+        assert self.generator
+        yield from self.generator(inp)
+
+
+class BindingFlow(Flow[Input, Output]):
+    bound: Flow[Input, Output]
+    kwargs: Mapping[str, Any] = Field(default_factory=dict)
+    config: FlowConfig = Field(default_factory=FlowConfig)
+
+    def __init__(self,
+                 bound: Flow[Input, Output],
+                 kwargs: Mapping[str, Any] | None = None,
+                 config: FlowConfig | None = None):
+        if isinstance(bound, BindingFlow):
+            kwargs_ = dict(bound.kwargs)
+            kwargs_.update(kwargs or {})
+            kwargs = kwargs_
+            config = bound.config.patch(config or FlowConfig())
+            bound = bound.bound
+
+        init_kwargs = filter_kwargs_by_pydantic(type(self), locals(), exclude_none=True)
+        super().__init__(**init_kwargs)  # type: ignore[call-arg]
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.bound, name)
+
+    def invoke(self, inp: Input) -> Output:
+        return self.bound.invoke(inp)
+
+
+class RetryFlow(Flow[Input, Output]):
+    bound: Flow[Input, Output]
+
+    retry_exception_types: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception
+    """Retries if an exception has been raised of one or more types."""
+
+    is_wait_exponential_jitter: bool = True
+    """Whether to use wait strategy that applies exponential backoff and jitter."""
+
+    max_attempt: int = 3
+    """Stop when the previous attempt >= max_attempt."""
+
+    @classmethod
+    @field_validator('bound')
+    def check_bound(cls, bound: Flow[Input, Output]):
+        if isinstance(bound, cls):
+            bound = bound.bound
+        return bound
+
+    @property
+    def retrying_kwargs(self) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = dict(reraise=True)
+        if self.max_attempt:
+            kwargs["stop"] = stop_after_attempt(self.max_attempt)
+        if self.is_wait_exponential_jitter:
+            kwargs["wait"] = wait_exponential_jitter()
+        if self.retry_exception_types:
+            kwargs["retry"] = retry_if_exception_type(self.retry_exception_types)
+
+        return kwargs
+
+    def invoke(self, inp: Input) -> Output:
+        for attempt in Retrying(**self.retrying_kwargs):
+            with attempt:
+                result = self.bound.invoke(inp)
+        return result
+
+
 FlowLike_ = Union[
     Flow[Input, Output],
     Callable[[Input], Output],
@@ -180,14 +304,12 @@ FlowLikeLeft = FlowLikeLeft_ | Mapping[str, FlowLikeLeft_]
 def to_flow(flow_like: FlowLike) -> Flow[Input, Output]:
     if isinstance(flow_like, Flow):
         return flow_like
-    elif is_async_generator(flow_like) or isgeneratorfunction(flow_like):
-        # return RunnableGenerator(thing)
-        return cast(Flow[Input, Output], flow_like)  # todo
+    elif is_generator(flow_like) or is_async_generator(flow_like):
+        return GeneratorFlow(flow_like)
     elif callable(flow_like):
         return FunctionFlow(func=cast(Callable[[Input], Output], flow_like))
     elif isinstance(flow_like, dict):
-        return cast(Flow[Input, Output], flow_like)  # todo
-        # return cast(Runnable[Input, Output], RunnableParallel(thing))
+        return cast(Flow[Input, Output], ParallelFlow(flow_like))
     else:
         raise TypeError(
             f"to_flow got an unsupported type: {type(flow_like)}"

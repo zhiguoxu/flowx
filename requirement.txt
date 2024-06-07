@@ -10,3 +10,4 @@ sentencepiece
 protobuf
 chromadb
 unstructured
+tenacity
