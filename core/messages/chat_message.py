@@ -19,9 +19,22 @@ class ToolCall(BaseModel):
 
 class Role(str, Enum):
     SYSTEM = "system"
-    user = "user"
-    assistant = "assistant"
-    tool = "tool"
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+
+    @classmethod
+    def from_name(cls, role_name):
+        for name, member in cls.__members__.items():
+            if name.lower() == role_name.lower():
+                return member
+
+        if role_name.lower() == "ai":
+            return Role.ASSISTANT
+        if role_name.lower() == "human":
+            return Role.USER
+
+        raise ValueError(f"error role name: {role_name}")
 
 
 class ChatMessage(BaseModel):
@@ -29,6 +42,7 @@ class ChatMessage(BaseModel):
     content: str | None = None
     tool_calls: Sequence[ToolCall] | None = None  # for assistant
     tool_call_id: str | None = None  # for tool
+    finish_reason: Literal["stop", "length", "tool_calls", "content_filter"] | str | None = None
 
 
 class FunctionChunk(BaseModel):
@@ -55,13 +69,13 @@ class ToolCallChunk(BaseModel):
 
 
 class ChatMessageChunk(BaseModel):
-    role: Literal["system", "user", "assistant", "tool"]
+    role: Role | None = None
     content: str | None = None
     tool_calls: Sequence[ToolCallChunk] | None = None  # for assistant
     tool_call_id: str | None = None  # for tool
+    finish_reason: Literal["stop", "length", "tool_calls"] | str | None = None
 
     def __add__(self, other: ChatMessageChunk) -> ChatMessageChunk:
-        assert self.role == other.role
         content: str | None = None
         if self.content is not None or other.content is not None:
             content = self.content or "" + (other.content or "")
@@ -72,7 +86,15 @@ class ChatMessageChunk(BaseModel):
                 tool_calls.append(other_tool_call)
             else:
                 tool_calls[other_tool_call.index] += other_tool_call
-        return ChatMessageChunk(role=self.role,
+        return ChatMessageChunk(role=self.role or other.role,
                                 content=content,
                                 tool_calls=tool_calls,
-                                tool_call_id=self.tool_call_id or other.tool_call_id)
+                                tool_call_id=self.tool_call_id or other.tool_call_id,
+                                finish_reason=self.finish_reason or other.finish_reason)
+
+
+def chunk_to_message(message_chunk: ChatMessageChunk) -> ChatMessage:
+    message_dump = message_chunk.model_dump()
+    for tool_call in message_dump.get("tool_calls") or []:
+        tool_call.pop("index")
+    return ChatMessage(**message_dump)

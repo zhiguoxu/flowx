@@ -17,15 +17,15 @@ class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
     @classmethod
     def from_tuple(cls, tp: Tuple[str, str]):
         assert len(tp) == 2
-        return cls(role=role_by_name(tp[0]), template=tp[1])
+        return cls(role=Role.from_name(tp[0]), template=tp[1])
 
     @classmethod
     def ai_message(cls, template: str):
-        return cls(role=Role.assistant, template=template)
+        return cls(role=Role.ASSISTANT, template=template)
 
     @classmethod
     def user_message(cls, template: str):
-        return cls(role=Role.user, template=template)
+        return cls(role=Role.USER, template=template)
 
     @classmethod
     def from_arg(cls, arg: str | Tuple[str, str]):
@@ -50,19 +50,6 @@ class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
     @property
     def input_vars(self) -> set[str]:
         return {var_name for _, var_name, _, _ in Formatter().parse(self.template) if var_name is not None}
-
-
-def role_by_name(name: str):
-    for name_, member in Role.__members__.items():
-        if name.lower() == name_.lower():
-            return member
-
-    if name.lower() == "ai":
-        return Role.assistant
-    if name.lower() == "human":
-        return Role.user
-
-    raise ValueError(f"error role name: {name}")
 
 
 def validate_template_vars(inp: str | Dict, template_vars: set[str]) -> Dict:

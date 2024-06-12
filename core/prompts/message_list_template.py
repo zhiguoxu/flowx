@@ -8,11 +8,11 @@ from core.prompts.message_template import MessageTemplate, validate_template_var
 
 
 class MessageListTemplate(Flow[Union[str | Dict], List[ChatMessage]]):
-    messages: List[MessageLike]
+    messages: List[MessageTemplateLike]
 
     @classmethod
-    def from_messages(cls, messages: Sequence[str | Tuple[str, str] | MessageLike]) -> MessageListTemplate:
-        messages_: List[MessageLike] = []
+    def from_messages(cls, messages: Sequence[str | Tuple[str, str] | MessageTemplateLike]) -> MessageListTemplate:
+        messages_: List[MessageTemplateLike] = []
         for msg in messages:
             if isinstance(msg, ChatMessage | MessageTemplate | MessageListTemplate):
                 messages_.append(msg)
@@ -51,6 +51,6 @@ class MessageListTemplate(Flow[Union[str | Dict], List[ChatMessage]]):
         return ret
 
 
-MessageLike = ChatMessage | MessageTemplate | MessageListTemplate
+MessageTemplateLike = ChatMessage | MessageTemplate | MessageListTemplate
 
 MessageListTemplate.update_forward_refs()
