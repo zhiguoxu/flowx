@@ -1,4 +1,4 @@
-from typing import Iterator, Tuple, List
+from typing import Iterator, Tuple, List, Dict, Any, Type
 
 from openai import Stream
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMessageParam, \
@@ -6,9 +6,11 @@ from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMe
     ChatCompletionMessageToolCallParam
 from openai.types.chat.chat_completion_chunk import Choice as ChoiceChunk, ChatCompletionChunk
 from openai.types.chat.chat_completion import Choice, ChatCompletion
+from pydantic import BaseModel
 
 from core.llm.llm import ChatResult, TokenUsage
 from core.messages.chat_message import ChatMessage, Role, ToolCall, ChatMessageChunk, ToolCallChunk
+from core.tool import Tool
 
 
 def to_openai_message(message: ChatMessage) -> ChatCompletionMessageParam:
@@ -74,3 +76,21 @@ def chat_result_from_openai(chat_completion: ChatCompletion | Stream[ChatComplet
 
         result.message_stream = to_message_stream()
     return result
+
+
+def get_tool_by_pydantic(pydantic_class: Type[BaseModel]) -> Dict[str, Any]:
+    schema = pydantic_class.model_json_schema()
+    function = {
+        "name": schema.pop("title"),
+        "description": schema.pop("description"),
+        "parameters": schema
+    }
+    return {"type": "function", "function": function}
+
+
+def get_tool_choice_by_pydantic(pydantic_class: Type[BaseModel]) -> str | dict:
+    return {"type": "function", "function": {"name": pydantic_class.schema()["title"]}}
+
+
+def tool_to_openai(tool: Tool) -> Dict[str, Any]:
+    return get_tool_by_pydantic(tool.args_schema)
