@@ -21,6 +21,8 @@ class GenerationArgs(BaseModel):
 
     stop: str | List[str] | None = None
 
+    n: int = Field(default=1, description="How many chat completion choices to generate for each input message.")
+
     extra_kwargs: Dict | None = Field(default=None, description="Other generation parameters.")
 
     class Config:

@@ -58,7 +58,9 @@ class OpenAILLM(LLM):
             messages = to_chat_messages(messages)
         messages = self.try_add_system_message(messages)
         openai_messages = list(map(to_openai_message, messages))
-        resp = self.client.chat.completions.create(messages=openai_messages, **{**self.chat_kwargs, **kwargs})
+        kwargs = {**self.chat_kwargs, **kwargs}
+        assert not (kwargs["stream"] and kwargs["n"] > 1)
+        resp = self.client.chat.completions.create(messages=openai_messages, **kwargs)
         return chat_result_from_openai(resp)
 
     def try_add_system_message(self, messages: List[ChatMessage]) -> List[ChatMessage]:
