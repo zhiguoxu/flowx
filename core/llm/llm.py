@@ -1,21 +1,26 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Union, Sequence, Dict, Any, Tuple, List, Iterator
+from typing import Union, Sequence, Dict, Any, Tuple, List, Iterator, Literal
 
 from pydantic import Field, BaseModel
 
 from core.flow.flow import Flow
 from core.llm.generation_args import GenerationArgs
 from core.messages.chat_message import ChatMessage, Role, ChatMessageChunk, chunk_to_message
+from core.tool import Tool
 
 MessageLike = Union[ChatMessage, List[str], Tuple[str, str], str, Dict[str, Any]]
 
 LLMInput = Union[str, Sequence[MessageLike]]
+ToolChoiceLiteral = Literal["none", "auto", "required", "any"]
+ToolChoiceType = str | ToolChoiceLiteral
 
 
 class LLM(Flow[LLMInput, ChatMessage]):
     generation_args: GenerationArgs = Field(default_factory=GenerationArgs)
+    tools: List[Tool] | None = None
+    tool_choice: ToolChoiceType | None = None
 
     def invoke(self, inp: LLMInput) -> ChatMessage:
         messages = to_chat_messages(inp)
@@ -35,6 +40,13 @@ class LLM(Flow[LLMInput, ChatMessage]):
     @abstractmethod
     def stream_chat(self, messages: List[ChatMessage]) -> ChatResult:
         ...
+
+    def set_tools(self, tools: List[Tool] | None = None, tool_choice: ToolChoiceType | None = None):
+        self.tools = tools
+        if not tools:
+            self.tool_choice = None
+        else:
+            self.tool_choice = tool_choice
 
 
 def to_chat_messages(inp: LLMInput) -> List[ChatMessage]:

@@ -32,6 +32,10 @@ class Tool(BaseModel, Generic[ToolOutput]):
     def __call__(self, *args: Any, **kwargs: Any) -> ToolOutput:
         return self.function(*args, **kwargs)
 
+    @property
+    def name(self):
+        return self.args_schema.__name__
+
 
 def tool(*args: str | Callable[..., ToolOutput] | Flow[Any, ToolOutput],
          args_schema: Type[BaseModel] | None = None,

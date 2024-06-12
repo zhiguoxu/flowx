@@ -1,16 +1,16 @@
-from typing import List, Sequence, Dict, Any, Literal
+from typing import List, Dict, Any, get_args
 
 from openai import OpenAI
 from openai.types import ChatModel
 from pydantic import Field
 
 from core.llm.generation_args import GenerationArgs
-from core.llm.llm import LLM, ChatResult, to_chat_messages
-from core.llm.openai.utils import chat_result_from_openai, to_openai_message
+from core.llm.llm import LLM, ChatResult, to_chat_messages, ToolChoiceLiteral, ToolChoiceType
+from core.llm.openai.utils import chat_result_from_openai, to_openai_message, tool_to_openai, \
+    get_tool_choice_by_pydantic
 from core.messages.chat_message import ChatMessage, Role
+from core.tool import Tool
 from core.utils.utils import filter_kwargs_by_method, filter_kwargs_by_pydantic
-
-ToolChoiceType = str | Literal["none", "auto", "required"] | Dict[str, Any]
 
 
 class OpenAILLM(LLM):
@@ -22,10 +22,7 @@ class OpenAILLM(LLM):
     system_prompt: str | None = Field(default=None, description="System prompt for LLM calls.")
     stream_include_usage: bool = Field(default=False, description="Refer to ChatCompletionChunk.usage and"
                                                                   " ChatCompletionStreamOptionsParam")
-    tool_choice: ToolChoiceType | None = None
-    # "none", "auto", "required", {"type": "function", "function": {"name": "my_function"}}
 
-    tools: List[Dict[str, Any]] | None = None
     # [{"type": "function", "function": {"description": "xxx", "name": "yyy", "parameters": { json format }}}]
     # refer to https://platform.openai.com/docs/api-reference/chat/create for json format
 
@@ -41,7 +38,9 @@ class OpenAILLM(LLM):
                  base_url: str | None = None,
                  max_retries: int = 2,
                  timeout: float = 20,
-                 stream_include_usage: bool = False):
+                 stream_include_usage: bool = False,
+                 tools: List[Tool] | None = None,
+                 tool_choice: ToolChoiceType | None = None):
 
         generation_kwargs = filter_kwargs_by_pydantic(GenerationArgs, locals(), exclude_none=True)
         generation_args = GenerationArgs(**generation_kwargs)
@@ -69,8 +68,8 @@ class OpenAILLM(LLM):
 
     @property
     def chat_kwargs(self) -> Dict[str, Any]:
-        kwargs = self.generation_args.model_dump()
-        kwargs.update(self.model_dump())
+        kwargs = self.generation_args.model_dump(exclude_none=True)
+        kwargs.update(self.model_dump(exclude_none=True))
 
         if "max_new_tokens" in kwargs:
             kwargs["max_tokens"] = kwargs.pop("max_new_tokens")
@@ -82,6 +81,9 @@ class OpenAILLM(LLM):
         if kwargs.get("stream_include_usage"):
             kwargs["stream_options"] = dict(include_usage=True)
 
+        kwargs["tools"] = self.openai_tools
+        kwargs["tool_choice"] = self.openai_tool_choice
+
         return filter_kwargs_by_method(OpenAI().chat.completions.create, kwargs, exclude_none=True)
 
     @property
@@ -90,3 +92,23 @@ class OpenAILLM(LLM):
                       base_url=self.base_url,
                       max_retries=self.max_retries,
                       timeout=self.timeout)
+
+    @property
+    def openai_tools(self) -> List[Dict[str, Any]] | None:
+        return list(map(tool_to_openai, self.tools)) if self.tools else None
+
+    @property
+    def openai_tool_choice(self):
+        if not self.tool_choice:
+            return None
+
+        tool_choice = "required" if self.tool_choice == "any" else self.tool_choice
+        if tool_choice in get_args(ToolChoiceLiteral):
+            return tool_choice
+
+        for tool in self.tools or []:
+            if tool.name == tool_choice:
+                return get_tool_choice_by_pydantic(tool.args_schema)
+
+        tool_names = list(map(lambda tool_: tool_.name, self.tools))
+        raise ValueError(f"""Error tool choice: "{self.tool_choice}" not in tools: {tool_names}""")
