@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal, Sequence
+from typing import Literal, Sequence, Any
 
 from pydantic import BaseModel
 
@@ -24,15 +24,19 @@ class Role(str, Enum):
     TOOL = "tool"
 
     @classmethod
-    def from_name(cls, role_name):
-        for name, member in cls.__members__.items():
-            if name.lower() == role_name.lower():
-                return member
+    def from_name(cls, role_name: Any):
+        if isinstance(role_name, Role):
+            return role_name
 
-        if role_name.lower() == "ai":
-            return Role.ASSISTANT
-        if role_name.lower() == "human":
-            return Role.USER
+        if isinstance(role_name, str):
+            for name, member in cls.__members__.items():
+                if name.lower() == role_name.lower():
+                    return member
+
+            if role_name.lower() == "ai":
+                return Role.ASSISTANT
+            if role_name.lower() == "human":
+                return Role.USER
 
         raise ValueError(f"error role name: {role_name}")
 

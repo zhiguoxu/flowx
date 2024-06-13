@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from string import Formatter
-from typing import Dict, Tuple, Any, Union
+from typing import Dict, Tuple, Any, Union, List, Sequence
 
 from pydantic import Field
 
@@ -15,11 +15,6 @@ class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
     partial_vars: Dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def from_tuple(cls, tp: Tuple[str, str]):
-        assert len(tp) == 2
-        return cls(role=Role.from_name(tp[0]), template=tp[1])
-
-    @classmethod
     def ai_message(cls, template: str):
         return cls(role=Role.ASSISTANT, template=template)
 
@@ -28,10 +23,13 @@ class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
         return cls(role=Role.USER, template=template)
 
     @classmethod
-    def from_arg(cls, arg: str | Tuple[str, str]):
+    def from_arg(cls, arg: str | List[str] | Tuple[str, str] | Dict[str, Any]):
         if isinstance(arg, str):
-            return MessageTemplate.from_tuple(("user", arg))
-        return cls.from_tuple(arg)
+            return cls(role=Role.USER, template=arg)
+        if isinstance(arg, Dict):
+            return cls(role=Role.from_name(arg["role"]), template=arg["content"])
+        assert isinstance(arg, Sequence) and len(arg) == 2
+        return cls(role=Role.from_name(arg[0]), template=arg[1])
 
     def invoke(self, inp: str | Dict) -> ChatMessage:
         inp = validate_template_vars(inp, self.input_vars)
@@ -59,7 +57,7 @@ def validate_template_vars(inp: str | Dict, template_vars: set[str]) -> Dict:
     if isinstance(inp, Dict):
         return inp
 
-    assert len(template_vars) == 1, "Expect str type input only when has only one template input var"
+    assert len(template_vars) == 1, "Expect str type input only when has only one template input var!"
 
     var_name = next(iter(template_vars))
     return {var_name: inp}

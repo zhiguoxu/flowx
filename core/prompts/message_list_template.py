@@ -12,11 +12,19 @@ class MessageListTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
     messages: List[MessageTemplateLike]
 
     @classmethod
-    def from_messages(cls, messages: Sequence[str | Tuple[str, str] | MessageTemplateLike]) -> MessageListTemplate:
+    def from_messages(cls,
+                      messages: Sequence[str | List[str] | Tuple[str, str] | MessageTemplateLike]
+                      ) -> MessageListTemplate:
         messages_: List[MessageTemplateLike] = []
         for msg in messages:
-            if isinstance(msg, ChatMessage | MessageTemplate | MessageListTemplate):
+            if isinstance(msg, ChatMessage | MessageTemplate | MessageListTemplate | MessagesPlaceholder):
                 messages_.append(msg)
+            elif isinstance(msg, Sequence) and msg[0] == "placeholder":
+                assert len(msg) >= 2
+                var_name = msg[1]
+                assert var_name[0] == "{" and var_name[-1] == "}", "var"
+                optional = msg[2] if len(msg) > 2 and isinstance(msg[2], bool) else True  # type: ignore[misc]
+                messages_.append(MessagesPlaceholder(var_name=var_name[1:-1], optional=optional))
             else:
                 messages_.append(MessageTemplate.from_arg(msg))
         return cls(messages=messages_)
@@ -32,7 +40,8 @@ class MessageListTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
 
     def format(self, arg: str | None = None, **kwargs: Any) -> List[ChatMessage]:
         if arg is not None:
-            assert len(kwargs) == 0
+            assert len(kwargs) == 0, \
+                f"Use position argument when only has one template var, which means no other input!"
             kwargs = validate_template_vars(arg, self.input_vars)
 
         ret: List[ChatMessage] = []
@@ -41,7 +50,7 @@ class MessageListTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
                 ret.append(msg)
             elif isinstance(msg, MessageTemplate):
                 ret.append(msg.format(**kwargs))
-            elif isinstance(msg, MessageListTemplate):
+            elif isinstance(msg, (MessageListTemplate, MessagesPlaceholder)):
                 ret.extend(msg.format(**kwargs))
             else:
                 raise TypeError(f"message type error: {msg}")
@@ -53,12 +62,10 @@ class MessageListTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
         for msg in self.messages:
             if isinstance(msg, (MessageTemplate, MessageListTemplate)):
                 ret.update(msg.input_vars)
+            elif isinstance(msg, MessagesPlaceholder):
+                ret.add(msg.var_name)
         return ret
 
-
-MessageTemplateLike = ChatMessage | MessageTemplate | MessageListTemplate
-
-MessageListTemplate.update_forward_refs()
 
 MessageLikeInput = Union[MessageLike, Sequence[MessageLike]]
 PlaceholderInput = Union[MessageLikeInput, Dict[str, MessageLikeInput]]
@@ -90,7 +97,7 @@ class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
             v = inp.get(self.var_name)
             if self.optional:
                 v = v or []
-            assert v
+            assert v is not None, f"Expect input key: {self.var_name}"
             return self.to_chat_messages(v)
 
         if isinstance(inp, str) or not isinstance(inp, Sequence):
@@ -99,9 +106,13 @@ class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
         # Sequence
         try:
             if len(inp) == 2 and Role.from_name(inp[0]):
-                return [to_chat_message(inp)]   # type: ignore[arg-type]
+                return [to_chat_message(inp)]  # type: ignore[arg-type]
         except ValueError as e:
             ...
 
         # Sequence[MessageLike]
         return list(map(to_chat_message, inp))
+
+
+MessageTemplateLike = ChatMessage | MessageTemplate | MessageListTemplate | MessagesPlaceholder
+MessageListTemplate.update_forward_refs()

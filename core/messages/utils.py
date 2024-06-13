@@ -17,6 +17,6 @@ def to_chat_message(message: MessageLike) -> ChatMessage:
         return ChatMessage(role=Role.from_name(message[0]), content=message[1])
 
     if isinstance(message, dict):
-        return ChatMessage(role=Role.from_name(message.get("role")), content=message.get("content"))
+        return ChatMessage(role=Role.from_name(message["role"]), content=message["content"])
 
     raise TypeError(f"Error type: {message}")
