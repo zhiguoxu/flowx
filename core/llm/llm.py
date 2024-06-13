@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Union, Sequence, Dict, Any, Tuple, List, Iterator, Literal
+from typing import Union, Sequence, Tuple, List, Iterator, Literal
 
 from pydantic import Field, BaseModel
 
 from core.flow.flow import Flow
 from core.llm.generation_args import GenerationArgs
-from core.messages.chat_message import ChatMessage, Role, ChatMessageChunk, chunk_to_message
+from core.messages.chat_message import ChatMessage, ChatMessageChunk, chunk_to_message
+from core.messages.utils import to_chat_message, MessageLike
 from core.tool import Tool
-
-MessageLike = Union[ChatMessage, List[str], Tuple[str, str], str, Dict[str, Any]]
 
 LLMInput = Union[str, Sequence[MessageLike]]
 ToolChoiceLiteral = Literal["none", "auto", "required", "any"]
@@ -54,23 +53,6 @@ def to_chat_messages(inp: LLMInput) -> List[ChatMessage]:
         return [to_chat_message(inp)]
 
     return list(map(to_chat_message, inp))
-
-
-def to_chat_message(message: MessageLike) -> ChatMessage:
-    if isinstance(message, ChatMessage):
-        return message
-
-    if isinstance(message, str):
-        return ChatMessage(role=Role.USER, content=message)
-
-    if isinstance(message, Sequence):  # list, tuple
-        assert len(message) == 2, f"MessageLike type error {message}"
-        return ChatMessage(role=Role.from_name(message[0]), content=message[1])
-
-    if isinstance(message, dict):
-        return ChatMessage(role=Role.from_name(message.get("role")), content=message.get("content"))
-
-    raise TypeError(f"Error type: {message}")
 
 
 class TokenUsage(BaseModel):

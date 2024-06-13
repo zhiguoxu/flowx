@@ -44,7 +44,10 @@ class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
         ret.partial_vars.update(kwargs)
         return ret
 
-    def format(self, **kwargs: Any) -> ChatMessage:
+    def format(self, arg: str | None = None, **kwargs: Any) -> ChatMessage:
+        if arg is not None:
+            assert len(kwargs) == 0
+            kwargs = validate_template_vars(arg, self.input_vars)
         return ChatMessage(role=self.role, content=self.template.format(**kwargs, **self.partial_vars))
 
     @property
@@ -56,8 +59,7 @@ def validate_template_vars(inp: str | Dict, template_vars: set[str]) -> Dict:
     if isinstance(inp, Dict):
         return inp
 
-    if len(template_vars) == 1:
-        var_name = next(iter(template_vars))
-        return {var_name: inp}
-    else:
-        raise TypeError("Expect str type input only when has only one template input var")
+    assert len(template_vars) == 1, "Expect str type input only when has only one template input var"
+
+    var_name = next(iter(template_vars))
+    return {var_name: inp}
