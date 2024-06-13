@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from string import Formatter
-from typing import Dict, Tuple, Any, Union, List, Sequence
+from typing import Dict, Tuple, Any, Union, List
 
 from pydantic import Field
 
@@ -26,9 +26,9 @@ class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
     def from_arg(cls, arg: str | List[str] | Tuple[str, str] | Dict[str, Any]):
         if isinstance(arg, str):
             return cls(role=Role.USER, template=arg)
-        if isinstance(arg, Dict):
+        if isinstance(arg, dict):
             return cls(role=Role.from_name(arg["role"]), template=arg["content"])
-        assert isinstance(arg, Sequence) and len(arg) == 2
+        assert isinstance(arg, (list, tuple)) and len(arg) == 2
         return cls(role=Role.from_name(arg[0]), template=arg[1])
 
     def invoke(self, inp: str | Dict) -> ChatMessage:
@@ -54,7 +54,7 @@ class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
 
 
 def validate_template_vars(inp: str | Dict, template_vars: set[str]) -> Dict:
-    if isinstance(inp, Dict):
+    if isinstance(inp, dict):
         return inp
 
     assert len(template_vars) == 1, "Expect str type input only when has only one template input var!"

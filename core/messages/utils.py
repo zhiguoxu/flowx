@@ -1,4 +1,4 @@
-from typing import Union, List, Tuple, Dict, Any, Sequence
+from typing import Union, List, Tuple, Dict, Any
 
 from core.messages.chat_message import ChatMessage, Role
 
@@ -12,7 +12,7 @@ def to_chat_message(message: MessageLike) -> ChatMessage:
     if isinstance(message, str):
         return ChatMessage(role=Role.USER, content=message)
 
-    if isinstance(message, Sequence):  # list, tuple
+    if isinstance(message, (list, tuple)):
         assert len(message) == 2, f"MessageLike type error {message}"
         return ChatMessage(role=Role.from_name(message[0]), content=message[1])
 

@@ -19,7 +19,7 @@ class MessageListTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
         for msg in messages:
             if isinstance(msg, ChatMessage | MessageTemplate | MessageListTemplate | MessagesPlaceholder):
                 messages_.append(msg)
-            elif isinstance(msg, Sequence) and msg[0] == "placeholder":
+            elif isinstance(msg, (list, tuple)) and msg[0] == "placeholder":
                 assert len(msg) >= 2
                 var_name = msg[1]
                 assert var_name[0] == "{" and var_name[-1] == "}", "var"
@@ -90,7 +90,7 @@ class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
         return self.to_chat_messages(kwargs)
 
     def to_chat_messages(self, inp: PlaceholderInput) -> List[ChatMessage]:
-        if isinstance(inp, Dict):  # Dict[str, MessageLikeInput] or {"role": xxx,"content": yyy}
+        if isinstance(inp, dict):  # Dict[str, MessageLikeInput] or {"role": xxx,"content": yyy}
             if len(inp) == 2 and "role" in inp and "content" in inp:
                 return [to_chat_message(inp)]
 
@@ -100,10 +100,11 @@ class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
             assert v is not None, f"Expect input key: {self.var_name}"
             return self.to_chat_messages(v)
 
+        # Sequence
         if isinstance(inp, str) or not isinstance(inp, Sequence):
             return [to_chat_message(inp)]
 
-        # Sequence
+        # try MessageLike
         try:
             if len(inp) == 2 and Role.from_name(inp[0]):
                 return [to_chat_message(inp)]  # type: ignore[arg-type]
