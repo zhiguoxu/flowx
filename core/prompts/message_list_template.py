@@ -65,7 +65,7 @@ PlaceholderInput = Union[MessageLikeInput, Dict[str, MessageLikeInput]]
 
 
 class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
-    variable_name: str
+    var_name: str
     """Name of variable to use as messages."""
 
     optional: bool = False
@@ -83,8 +83,11 @@ class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
         return self.to_chat_messages(kwargs)
 
     def to_chat_messages(self, inp: PlaceholderInput) -> List[ChatMessage]:
-        if isinstance(inp, Dict):  # Dict[str, MessageLikeInput]
-            v = inp.get(self.variable_name)
+        if isinstance(inp, Dict):  # Dict[str, MessageLikeInput] or {"role": xxx,"content": yyy}
+            if len(inp) == 2 and "role" in inp and "content" in inp:
+                return [to_chat_message(inp)]
+
+            v = inp.get(self.var_name)
             if self.optional:
                 v = v or []
             assert v
