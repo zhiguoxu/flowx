@@ -222,7 +222,7 @@ class BindingFlow(Flow[Input, Output]):
             kwargs_ = dict(bound.kwargs)
             kwargs_.update(kwargs or {})
             kwargs = kwargs_
-            config = bound.config.patch(config or FlowConfig())
+            config = bound.config.patch(config or {})
             bound = bound.bound
 
         init_kwargs = filter_kwargs_by_pydantic(type(self), locals(), exclude_none=True)
