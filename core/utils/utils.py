@@ -1,3 +1,4 @@
+import builtins
 import inspect
 from typing import Callable, List, Dict, Any, Type
 
@@ -47,3 +48,18 @@ def filter_kwargs_by_init_or_pydantic(model_type: Type[Model],
     if len(kwargs) == 0:
         kwargs = filter_kwargs_by_pydantic(model_type, locals(), exclude=exclude, exclude_none=exclude_none)
     return kwargs
+
+
+def get_model_field_type(model: Model | Type[Model], key: str):
+    field_type = model.__annotations__.get(key)
+    type_map = dict(List=list, Set=set, Tuple=tuple)
+    if isinstance(field_type, str):
+        # If caller use 'from __future__ import annotations', field_type's type will be str.
+        for k, t in type_map.items():
+            if field_type.startswith(k):
+                return t
+
+    elif hasattr(field_type, '__origin__'):
+        return field_type.__origin__
+
+    return field_type

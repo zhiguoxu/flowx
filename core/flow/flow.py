@@ -8,8 +8,9 @@ from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awa
 from pydantic import BaseModel, Field, field_validator
 from tenacity import stop_after_attempt, wait_exponential_jitter, retry_if_exception_type, Retrying
 
+from core.context import get_executor
 from core.flow.addable_dict import AddableDict
-from core.flow.flow_config import var_flow_config, get_executor, FlowConfig
+from core.flow.flow_config import var_flow_config, FlowConfig
 from core.flow.utils import merge_iterator, is_async_generator, is_generator
 from core.utils.iter import safe_tee
 from core.utils.utils import filter_kwargs_by_pydantic, filter_kwargs_by_init_or_pydantic
@@ -62,8 +63,10 @@ class Flow(BaseModel, Generic[Input, Output], ABC):
 class FunctionFlow(Flow[Input, Output]):
     func: Callable[[Input], Output] | Callable[[Input], Iterator[Output]]
 
-    def __init__(self, func: Callable[[Input], Output] | Callable[[Input], Iterator[Output]]):
-        super().__init__(func=func)  # type: ignore[call-arg]
+    def __init__(self, func: Callable[[Input], Output] | Callable[[Input], Iterator[Output]], name: str | None = None):
+        if not name and func.__name__ != "<lambda>":
+            name = func.__name__
+        super().__init__(func=func, name=name)  # type: ignore[call-arg]
 
     def invoke(self, inp: Input) -> Output:
         output = self.func(inp)

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from concurrent.futures import Executor, Future, ThreadPoolExecutor
-from contextlib import contextmanager
-from contextvars import ContextVar, copy_context
-from typing import Generator, ParamSpec, TypeVar, Callable, cast, Iterable, Any, Iterator, Dict, List
+from contextvars import ContextVar
+from typing import Dict, List, Set
 
 from pydantic import BaseModel, Field
+
+from core.utils.utils import get_model_field_type
 
 
 class FlowConfig(BaseModel):
@@ -23,10 +23,13 @@ class FlowConfig(BaseModel):
 
         data = self.model_dump(exclude_unset=True)
         for key, value in other.items():
-            old_v = data[key]
-            if isinstance(value, list) and isinstance(old_v, list):
-                old_v.extend(value)
+            field_type = get_model_field_type(self, key)
+            if field_type is list:
+                value = (data.get(key) or []) + value
+            elif field_type is set:
+                value = (data.get(key) or set()) | value
             data[key] = value
+
         return FlowConfig(**data)
 
     def patch(self, other: FlowConfig | Dict) -> FlowConfig:
@@ -39,38 +42,3 @@ class FlowConfig(BaseModel):
 
 
 var_flow_config = ContextVar("flow_config", default=FlowConfig())
-
-P = ParamSpec("P")
-T = TypeVar("T")
-
-
-class ContextThreadPoolExecutor(ThreadPoolExecutor):
-    """ThreadPoolExecutor that copies the context to the child thread."""
-
-    def submit(self, func: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> Future[T]:
-        return super().submit(
-            cast(Callable[..., T], copy_context().run), func, *args, **kwargs)
-
-    def map(self,
-            fn: Callable[..., T],
-            *iterables: Iterable[Any],
-            timeout: float | None = None,
-            chunksize: int = 1
-            ) -> Iterator[T]:
-        contexts = [copy_context() for _ in range(len(iterables[0]))]  # type: ignore
-
-        return super().map(
-            lambda *args: contexts.pop().run(fn, *args),
-            *iterables,
-            timeout=timeout,
-            chunksize=chunksize,
-        )
-
-
-@contextmanager
-def get_executor(
-) -> Generator[Executor, None, None]:
-    with ContextThreadPoolExecutor(
-            max_workers=var_flow_config.get().max_concurrency
-    ) as executor:
-        yield executor
