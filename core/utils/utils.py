@@ -52,6 +52,9 @@ def filter_kwargs_by_init_or_pydantic(model_type: Type[Model],
 
 def get_model_field_type(model: Model | Type[Model], key: str):
     field_type = model.__annotations__.get(key)
+    if not field_type:
+        return None
+
     type_map = dict(List=list, Set=set, Tuple=tuple)
     if isinstance(field_type, str):
         # If caller use 'from __future__ import annotations', field_type's type will be str.

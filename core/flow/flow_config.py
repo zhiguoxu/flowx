@@ -38,10 +38,5 @@ class FlowConfig(BaseModel):
 
         return self.model_copy(update=other, deep=True)
 
-        # todo delete
-        # data = self.model_dump(exclude_unset=True)
-        # data.update(other)
-        # return FlowConfig(**data)
-
 
 var_flow_config = ContextVar("flow_config", default=FlowConfig())

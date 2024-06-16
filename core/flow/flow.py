@@ -232,7 +232,8 @@ class BindingFlow(Flow[Input, Output]):
         return getattr(self.bound, name)
 
     def invoke(self, inp: Input) -> Output:
-        return self.bound.invoke(inp)
+        return self.bound.invoke(inp, **self.kwargs)  # type: ignore[call-arg]
+        # Not every invoke accept **kwargs, so if you bind kwargs, it must be accepted by inner flow.
 
 
 class RetryFlow(Flow[Input, Output]):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Union, Sequence, Tuple, List, Iterator, Literal
+from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any
 
 from pydantic import Field, BaseModel
 
@@ -21,9 +21,9 @@ class LLM(Flow[LLMInput, ChatMessage]):
     tools: List[Tool] | None = None
     tool_choice: ToolChoiceType | None = None
 
-    def invoke(self, inp: LLMInput) -> ChatMessage:
+    def invoke(self, inp: LLMInput, **kwargs: Any) -> ChatMessage:
         messages = to_chat_messages(inp)
-        return self.chat(messages).messages[0]
+        return self.chat(messages, **kwargs).messages[0]
 
     def stream(self, inp: LLMInput) -> Iterator[ChatMessageChunk]:  # type: ignore[override]
         messages = to_chat_messages(inp)
@@ -33,11 +33,11 @@ class LLM(Flow[LLMInput, ChatMessage]):
             yield message_chunk
 
     @abstractmethod
-    def chat(self, messages: List[ChatMessage]) -> ChatResult:
+    def chat(self, messages: List[ChatMessage] | str, **kwargs: Any) -> ChatResult:
         ...
 
     @abstractmethod
-    def stream_chat(self, messages: List[ChatMessage]) -> ChatResult:
+    def stream_chat(self, messages: List[ChatMessage] | str, **kwargs: Any) -> ChatResult:
         ...
 
     def set_tools(self, tools: List[Tool] | None = None, tool_choice: ToolChoiceType | None = None):
