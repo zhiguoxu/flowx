@@ -1,6 +1,6 @@
 import functools
-from contextvars import copy_context
-from typing import Any, Union, Callable, TypeVar, ParamSpec, Generator, Iterable, Iterator, cast, Dict
+from contextvars import copy_context, ContextVar, Context
+from typing import Any, Union, Callable, TypeVar, ParamSpec, Generator, Iterable, Iterator, cast, Dict, Tuple
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import contextmanager
 
@@ -8,14 +8,31 @@ from core.flow.flow_config import var_flow_config, FlowConfig
 
 Output = TypeVar("Output")
 
+var_context_cache = ContextVar("context_cache", default=dict())
+
+
+@contextmanager
+def new_context(obj: "Flow") -> Iterator[Context]:
+    cache = cast(Dict[str, Tuple[Context, int]], var_context_cache.get())
+    if obj.id not in cache.keys():
+        cache[obj.id] = copy_context().copy(), 1
+    else:
+        cache[obj.id][1] += 1
+    yield cast(Context, cache[obj.id][0])
+    ctx, count = cache[obj.id]
+    if count == 1:
+        cache.pop(obj.id)
+    else:
+        cache[obj.id] -= 1
+
 
 def flow_context(*args: Any,
                  config: FlowConfig | Dict | None = None,
-                 **kwargs: Any  # config in kwargs format
+                 **kwargs: Any  # config fields in kwargs format
                  ) -> Union[Callable, Callable[[Callable], Callable]]:
     def decorator(func: Callable[..., Output]) -> Callable[..., Output]:
         @functools.wraps(func)
-        def wrapper(*args_: Any, **kwargs_: Any) -> Output:
+        def wrapper(self, *args_: Any, **kwargs_: Any) -> Output:
 
             def run() -> Output:
                 if config:
@@ -23,9 +40,10 @@ def flow_context(*args: Any,
                 else:
                     new_config = var_flow_config.get().merge(kwargs)
                 var_flow_config.set(new_config)
-                return func(*args_, **kwargs_)
+                return func(self, *args_, **kwargs_)
 
-            return copy_context().copy().run(run)
+            with new_context(self) as context:
+                return context.run(run)
 
         return wrapper
 

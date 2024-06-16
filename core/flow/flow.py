@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import wait, FIRST_COMPLETED
 from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awaitable, AsyncIterator, Union, \
@@ -8,7 +9,7 @@ from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awa
 from pydantic import BaseModel, Field, field_validator
 from tenacity import stop_after_attempt, wait_exponential_jitter, retry_if_exception_type, Retrying
 
-from core.context import get_executor
+from core.context import get_executor, flow_context
 from core.flow.addable_dict import AddableDict
 from core.flow.flow_config import var_flow_config, FlowConfig
 from core.flow.utils import merge_iterator, is_async_generator, is_generator
@@ -21,7 +22,14 @@ Other = TypeVar("Other")
 
 
 class Flow(BaseModel, Generic[Input, Output], ABC):
+    id: str = str(uuid.uuid4())
     name: str | None = None
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.invoke = flow_context(cls.invoke)
+        cls.stream = flow_context(cls.stream)
+        cls.transform = flow_context(cls.transform)
 
     @abstractmethod
     def invoke(self, inp: Input) -> Output:
