@@ -11,8 +11,8 @@ from tenacity import stop_after_attempt, wait_exponential_jitter, retry_if_excep
 
 from core.context import get_executor, flow_context
 from core.flow.addable_dict import AddableDict
-from core.flow.flow_config import var_flow_config, FlowConfig
-from core.flow.utils import merge_iterator, is_async_generator, is_generator
+from core.flow.flow_config import FlowConfig
+from core.flow.utils import merge_iterator, is_async_generator, is_generator, recurse_flow
 from core.utils.iter import safe_tee
 from core.utils.utils import filter_kwargs_by_pydantic, filter_kwargs_by_init_or_pydantic
 
@@ -82,21 +82,25 @@ class FunctionFlow(Flow[Input, Output]):
             assert isinstance(output, Iterator)
             output = cast(Output, merge_iterator(output))
 
+        if isinstance(output, Flow):
+            with recurse_flow(self, inp):
+                output = output.invoke(inp)
+
         return cast(Output, output)
 
     def stream(self, inp: Input) -> Iterator[Output]:
         output = self.func(inp)
         if is_generator(self.func):
             assert isinstance(output, Iterator)
-            yield from output
+            for o in output:
+                if isinstance(o, Flow):
+                    with recurse_flow(self, inp):
+                        yield from o.stream(inp)
+                else:
+                    yield o
         elif isinstance(output, Flow):
-            config = var_flow_config.get()
-            if config.recursion_limit <= 0:
-                raise RecursionError(
-                    f"Recursion limit reached when invoking {self} with input {inp}."
-                )
-            config.recursion_limit -= 1
-            yield from output.stream(inp)
+            with recurse_flow(self, inp):
+                yield from output.stream(inp)
         else:
             yield cast(Output, output)
 

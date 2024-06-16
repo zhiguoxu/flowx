@@ -8,22 +8,25 @@ from core.flow.flow_config import var_flow_config, FlowConfig
 
 Output = TypeVar("Output")
 
-var_context_cache = ContextVar("context_cache", default=dict())
+var_context_cache: ContextVar[Dict[str, Tuple[Context, int]]] = ContextVar("context_cache", default=dict())
 
 
 @contextmanager
-def new_context(obj: "Flow") -> Iterator[Context]:
+def new_context(obj: "Flow") -> Iterator[Context]:  # type: ignore[name-defined]
+    from core.flow.flow import Flow
+    obj = cast(Flow, obj)
     cache = cast(Dict[str, Tuple[Context, int]], var_context_cache.get())
     if obj.id not in cache.keys():
-        cache[obj.id] = copy_context().copy(), 1
+        ctx, count = copy_context().copy(), 0
     else:
-        cache[obj.id][1] += 1
-    yield cast(Context, cache[obj.id][0])
+        ctx, count = cache[obj.id]
+    cache[obj.id] = ctx, count + 1
+    yield cast(Context, ctx)
     ctx, count = cache[obj.id]
     if count == 1:
         cache.pop(obj.id)
     else:
-        cache[obj.id] -= 1
+        cache[obj.id] = ctx, count - 1
 
 
 def flow_context(*args: Any,
