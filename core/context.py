@@ -5,6 +5,7 @@ from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import contextmanager
 
 from core.flow.flow_config import var_flow_config, FlowConfig
+from core.flow.utils import is_generator
 
 Output = TypeVar("Output")
 
@@ -21,7 +22,7 @@ def new_context(obj: "Flow") -> Iterator[Context]:  # type: ignore[name-defined]
     else:
         ctx, count = cache[obj.id]
     cache[obj.id] = ctx, count + 1
-    yield cast(Context, ctx)
+    yield cast(Context, ctx if count == 0 else None)  # prevent re-enter the same context
     ctx, count = cache[obj.id]
     if count == 1:
         cache.pop(obj.id)
@@ -33,22 +34,48 @@ def flow_context(*args: Any,
                  config: FlowConfig | Dict | None = None,
                  **kwargs: Any  # config fields in kwargs format
                  ) -> Union[Callable, Callable[[Callable], Callable]]:
-    def decorator(func: Callable[..., Output]) -> Callable[..., Output]:
+    def decorator(func: Callable[..., Output | Iterator[Output]]) -> Callable[..., Output | Iterator[Output]]:
+
+        def set_new_config():
+            if config:
+                new_config = var_flow_config.get().merge(config).merge(kwargs)
+            else:
+                new_config = var_flow_config.get().merge(kwargs)
+            var_flow_config.set(new_config)
+
         @functools.wraps(func)
         def wrapper(self, *args_: Any, **kwargs_: Any) -> Output:
 
             def run() -> Output:
-                if config:
-                    new_config = var_flow_config.get().merge(config).merge(kwargs)
-                else:
-                    new_config = var_flow_config.get().merge(kwargs)
-                var_flow_config.set(new_config)
-                return func(self, *args_, **kwargs_)
+                set_new_config()
+                return cast(Output, func(self, *args_, **kwargs_))
 
             with new_context(self) as context:
+                if context is None:
+                    # prevent re-enter the same context
+                    return run()
                 return context.run(run)
 
-        return wrapper
+        @functools.wraps(func)
+        def stream_wrapper(self, *args_: Any, **kwargs_: Any) -> Iterator[Output]:
+            def run_stream() -> Iterator[Output]:
+                set_new_config()
+                yield from cast(Iterator[Output], func(self, *args_, **kwargs_))
+
+            with new_context(self) as context:
+                if context is None:
+                    # prevent re-enter the same context
+                    yield from run_stream()
+                    return
+
+                iterator = run_stream()
+                while True:
+                    try:
+                        yield context.run(next, iterator)  # type: ignore[arg-type]
+                    except StopIteration:
+                        break
+
+        return stream_wrapper if is_generator(func) else wrapper  # type: ignore[return-value]
 
     if len(args) == 1 and callable(args[0]):
         return decorator(args[0])
