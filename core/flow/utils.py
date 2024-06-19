@@ -20,7 +20,7 @@ def merge_iterator(iterator: Iterator[T]) -> T:
                 final_v += i  # type: ignore
             except TypeError:
                 final_v = i
-    assert final_v != init_v
+    assert final_v != init_v, "merge_iterator's input is empty iterator"
     return cast(T, final_v)
 
 

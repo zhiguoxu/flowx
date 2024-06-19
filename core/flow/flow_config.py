@@ -10,12 +10,14 @@ from core.utils.utils import get_model_field_type
 
 class FlowConfig(BaseModel):
     recursion_limit: int = Field(default=20)
-    """Maximum number of times a call can recurse."""
+    """Maximum number of times a call can recurse. (must inheritable)"""
 
-    max_concurrency: int | None = Field(default=None)
-    """Maximum number of parallel calls to make."""
+    max_concurrency: int | None = Field(default=None)   # can not be local
+    """Maximum number of parallel calls to make. (must inheritable)"""
 
     tags: List[str] = Field(default_factory=list)
+
+    verbose: bool = False
 
     def merge(self, other: FlowConfig | Dict) -> FlowConfig:
         if isinstance(other, FlowConfig):

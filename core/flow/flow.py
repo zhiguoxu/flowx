@@ -9,9 +9,9 @@ from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awa
 from pydantic import BaseModel, Field, field_validator
 from tenacity import stop_after_attempt, wait_exponential_jitter, retry_if_exception_type, Retrying
 
-from core.context import get_executor, flow_context
+from core.callbacks.utils import trace
 from core.flow.addable_dict import AddableDict
-from core.flow.flow_config import FlowConfig
+from core.flow.flow_config import FlowConfig, var_flow_config
 from core.flow.utils import merge_iterator, is_async_generator, is_generator, recurse_flow
 from core.utils.iter import safe_tee
 from core.utils.utils import filter_kwargs_by_pydantic, filter_kwargs_by_init_or_pydantic
@@ -21,19 +21,30 @@ Output = TypeVar("Output", covariant=True)
 Other = TypeVar("Other")
 
 
-class Flow(BaseModel, Generic[Input, Output], ABC):
-    id: str = str(uuid.uuid4())
-    name: str | None = None
-
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        cls.invoke = flow_context(cls.invoke)
-        cls.stream = flow_context(cls.stream)
-        cls.transform = flow_context(cls.transform)
-
+class FlowBase(Generic[Input, Output], ABC):
     @abstractmethod
     def invoke(self, inp: Input) -> Output:
         ...
+
+    @abstractmethod
+    def stream(self, inp: Input) -> Iterator[Output]:
+        ...
+
+    @abstractmethod
+    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
+        ...
+
+
+class Flow(BaseModel, FlowBase[Input, Output], ABC):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str | None = None
+
+    def __init_subclass__(cls, **kwargs):
+        from core.context import flow_context
+        super().__init_subclass__(**kwargs)
+        cls.invoke = cast(Callable[[Input], Output], flow_context(cls.invoke))
+        cls.stream = cast(Callable[[Input], Iterator[Output]], flow_context(cls.stream))
+        cls.transform = cast(Callable[[Iterator[Input]], Iterator[Output]], flow_context(cls.transform))
 
     def stream(self, inp: Input) -> Iterator[Output]:
         yield self.invoke(inp)
@@ -53,11 +64,14 @@ class Flow(BaseModel, Generic[Input, Output], ABC):
     def bind(self, **kwargs: Any) -> BindingFlow[Input, Output]:
         return BindingFlow(bound=self, kwargs=kwargs)
 
-    def with_config(self, config: FlowConfig | None = None, **kwargs: Any) -> BindingFlow[Input, Output]:
-        return BindingFlow(
-            bound=self,
-            config=(config or FlowConfig()).merge(kwargs)
-        )
+    def with_config(self, config: FlowConfig | None = None,
+                    inheritable: bool = True,
+                    **kwargs: Any) -> BindingFlow[Input, Output]:
+        config = (config or FlowConfig()).merge(kwargs)
+        if inheritable:
+            return BindingFlow(self, config=config)
+        else:
+            return BindingFlow(self, local_config=config)
 
     def with_retry(self, *,
                    retry_exception_types: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception,
@@ -66,6 +80,10 @@ class Flow(BaseModel, Generic[Input, Output], ABC):
                    ) -> RetryFlow[Input, Output]:
         kwargs = filter_kwargs_by_init_or_pydantic(RetryFlow, locals())
         return RetryFlow(bound=self, **kwargs)
+
+    @property
+    def effect_config(self):  # readonly !
+        return var_flow_config.get()
 
 
 class FunctionFlow(Flow[Input, Output]):
@@ -76,6 +94,7 @@ class FunctionFlow(Flow[Input, Output]):
             name = func.__name__
         super().__init__(func=func, name=name)  # type: ignore[call-arg]
 
+    @trace
     def invoke(self, inp: Input) -> Output:
         output = self.func(inp)
         if is_generator(self.func):
@@ -88,16 +107,19 @@ class FunctionFlow(Flow[Input, Output]):
 
         return cast(Output, output)
 
+    @trace
     def stream(self, inp: Input) -> Iterator[Output]:
         output = self.func(inp)
         if is_generator(self.func):
             assert isinstance(output, Iterator)
+
             for o in output:
                 if isinstance(o, Flow):
                     with recurse_flow(self, inp):
                         yield from o.stream(inp)
                 else:
                     yield o
+
         elif isinstance(output, Flow):
             with recurse_flow(self, inp):
                 yield from output.stream(inp)
@@ -113,6 +135,7 @@ class SequenceFlow(Flow[Input, Output]):
         kwargs = filter_kwargs_by_pydantic(SequenceFlow, locals(), exclude={"steps"}, exclude_none=True)
         super().__init__(steps=flow_steps, **kwargs)  # type: ignore[call-arg]
 
+    @trace
     def invoke(self, inp: Input) -> Output:
         for step in self.steps:
             inp = step.invoke(inp)
@@ -121,6 +144,7 @@ class SequenceFlow(Flow[Input, Output]):
     def stream(self, inp: Input) -> Iterator[Output]:
         yield from self.transform(iter([inp]))
 
+    @trace
     def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
         for step in self.steps:
             inp = step.transform(inp)
@@ -134,7 +158,10 @@ class SequenceFlow(Flow[Input, Output]):
 
 
 class ParallelFlow(Flow[Input, Dict[str, Any]]):
-    steps: Mapping[str, Flow[Input, Any]]
+    # FunctionFlow[Input, int] is not subclass of Flow[Input, Any],
+    # so pydantic will create ValidationError!
+    # That's also why we need to use FlowBase.
+    steps: Mapping[str, FlowBase[Input, Any]]
 
     def __init__(self,
                  steps: Mapping[str, FlowLike] | None = None,
@@ -144,7 +171,9 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
         steps = {k: to_flow(v) for k, v in merged_steps.items()}
         super().__init__(steps=steps)  # type: ignore[call-arg]
 
+    @trace
     def invoke(self, inp: Input) -> Dict[str, Any]:
+        from core.context import get_executor
         with get_executor() as executor:
             futures = [
                 executor.submit(step.invoke, inp)
@@ -155,7 +184,9 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
     def stream(self, inp: Input) -> Iterator[Dict[str, Any]]:
         yield from self.transform(iter([inp]))
 
+    @trace
     def transform(self, inp: Iterator[Input]) -> Iterator[Dict[str, Any]]:
+        from core.context import get_executor
         input_copies = list(safe_tee(inp, len(self.steps)))
         with get_executor() as executor:
             # Create the transform() generator for each step
@@ -182,6 +213,9 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
                         futures[executor.submit(next, generator)] = (step_name, generator)
                     except StopIteration:
                         pass
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 class GeneratorFlow(Flow[Input, Output]):
@@ -224,17 +258,20 @@ class GeneratorFlow(Flow[Input, Output]):
 class BindingFlow(Flow[Input, Output]):
     bound: Flow[Input, Output]
     kwargs: Mapping[str, Any] = Field(default_factory=dict)
-    config: FlowConfig = Field(default_factory=FlowConfig)
+    config: FlowConfig = Field(default_factory=FlowConfig)  # inheritable config
+    local_config: FlowConfig = Field(default_factory=FlowConfig)  # local config don't affect children flow
 
     def __init__(self,
                  bound: Flow[Input, Output],
                  kwargs: Mapping[str, Any] | None = None,
-                 config: FlowConfig | None = None):
+                 config: FlowConfig | None = None,
+                 local_config: FlowConfig | None = None):
         if isinstance(bound, BindingFlow):
             kwargs_ = dict(bound.kwargs)
             kwargs_.update(kwargs or {})
             kwargs = kwargs_
             config = bound.config.patch(config or {})
+            local_config = bound.local_config.patch(config or {})
             bound = bound.bound
 
         init_kwargs = filter_kwargs_by_pydantic(type(self), locals(), exclude_none=True)
@@ -246,6 +283,16 @@ class BindingFlow(Flow[Input, Output]):
     def invoke(self, inp: Input) -> Output:
         return self.bound.invoke(inp, **self.kwargs)  # type: ignore[call-arg]
         # Not every invoke accept **kwargs, so if you bind kwargs, it must be accepted by inner flow.
+
+    def stream(self, inp: Input) -> Iterator[Output]:
+        yield from self.bound.stream(inp, **self.kwargs)  # type: ignore[call-arg]
+
+    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
+        yield from self.bound.transform(inp, **self.kwargs)  # type: ignore[call-arg]
+
+    @property
+    def effect_config(self) -> FlowConfig:  # readonly !
+        return var_flow_config.get().merge(self.local_config)
 
 
 class RetryFlow(Flow[Input, Output]):

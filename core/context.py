@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 from core.flow.flow_config import var_flow_config, FlowConfig
 from core.flow.utils import is_generator
+from core.flow.flow import Flow
 
 Output = TypeVar("Output")
 
@@ -13,9 +14,7 @@ var_context_cache: ContextVar[Dict[str, Tuple[Context, int]]] = ContextVar("cont
 
 
 @contextmanager
-def new_context(obj: "Flow") -> Iterator[Context]:  # type: ignore[name-defined]
-    from core.flow.flow import Flow
-    obj = cast(Flow, obj)
+def new_context(obj: Flow) -> Iterator[Context]:
     cache = cast(Dict[str, Tuple[Context, int]], var_context_cache.get())
     if obj.id not in cache.keys():
         ctx, count = copy_context().copy(), 0
@@ -36,18 +35,21 @@ def flow_context(*args: Any,
                  ) -> Union[Callable, Callable[[Callable], Callable]]:
     def decorator(func: Callable[..., Output | Iterator[Output]]) -> Callable[..., Output | Iterator[Output]]:
 
-        def set_new_config():
+        def set_new_config(flow: Flow) -> None:
             if config:
                 new_config = var_flow_config.get().merge(config).merge(kwargs)
             else:
                 new_config = var_flow_config.get().merge(kwargs)
+            config_in_flow = getattr(flow, "config", None)  # for binding flow's inheritable config
+            if config_in_flow:
+                new_config = new_config.merge(config_in_flow)
             var_flow_config.set(new_config)
 
         @functools.wraps(func)
-        def wrapper(self, *args_: Any, **kwargs_: Any) -> Output:
+        def wrapper(self: Flow, *args_: Any, **kwargs_: Any) -> Output:
 
             def run() -> Output:
-                set_new_config()
+                set_new_config(self)
                 return cast(Output, func(self, *args_, **kwargs_))
 
             with new_context(self) as context:
@@ -57,23 +59,22 @@ def flow_context(*args: Any,
                 return context.run(run)
 
         @functools.wraps(func)
-        def stream_wrapper(self, *args_: Any, **kwargs_: Any) -> Iterator[Output]:
+        def stream_wrapper(self: Flow, *args_: Any, **kwargs_: Any) -> Iterator[Output]:
             def run_stream() -> Iterator[Output]:
-                set_new_config()
+                set_new_config(self)
                 yield from cast(Iterator[Output], func(self, *args_, **kwargs_))
 
             with new_context(self) as context:
                 if context is None:
                     # prevent re-enter the same context
                     yield from run_stream()
-                    return
-
-                iterator = run_stream()
-                while True:
-                    try:
-                        yield context.run(next, iterator)  # type: ignore[arg-type]
-                    except StopIteration:
-                        break
+                else:
+                    iterator = run_stream()
+                    while True:
+                        try:
+                            yield context.run(next, iterator)  # type: ignore[arg-type]
+                        except StopIteration:
+                            break
 
         return stream_wrapper if is_generator(func) else wrapper  # type: ignore[return-value]
 
