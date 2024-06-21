@@ -1,41 +1,7 @@
-import inspect
 from contextlib import contextmanager
-from typing import Iterator, TypeVar, Any, Callable, TypeGuard, cast, AsyncIterator
+from typing import Any
 
 from core.flow.flow_config import var_flow_config
-
-T = TypeVar("T")
-
-
-def merge_iterator(iterator: Iterator[T]) -> T:
-    """return (has_value, merged_value)"""
-
-    init_v = object()
-    final_v: T | object = init_v
-    for i in iterator:
-        if final_v == init_v:
-            final_v = i
-        else:
-            try:
-                final_v += i  # type: ignore
-            except TypeError:
-                final_v = i
-    assert final_v != init_v, "merge_iterator's input is empty iterator"
-    return cast(T, final_v)
-
-
-def is_generator(func: Any) -> TypeGuard[Callable[..., Iterator]]:
-    return (
-            inspect.isgeneratorfunction(func)
-            or (hasattr(func, "__call__") and inspect.isgeneratorfunction(func.__call__))
-    )
-
-
-def is_async_generator(func: Any) -> TypeGuard[Callable[..., AsyncIterator]]:
-    return (
-            inspect.isasyncgenfunction(func)
-            or (hasattr(func, "__call__") and inspect.isasyncgenfunction(func.__call__))
-    )
 
 
 @contextmanager

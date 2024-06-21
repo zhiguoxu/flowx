@@ -5,8 +5,8 @@ from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import contextmanager
 
 from core.flow.flow_config import var_flow_config, FlowConfig
-from core.flow.utils import is_generator
-from core.flow.flow import Flow
+from core.flow.flow import Flow, BindingFlow
+from core.utils.utils import is_generator, accepts_config
 
 Output = TypeVar("Output")
 
@@ -33,23 +33,24 @@ def flow_context(*args: Any,
                  config: FlowConfig | Dict | None = None,
                  **kwargs: Any  # config fields in kwargs format
                  ) -> Union[Callable, Callable[[Callable], Callable]]:
+
     def decorator(func: Callable[..., Output | Iterator[Output]]) -> Callable[..., Output | Iterator[Output]]:
 
-        def set_new_config(flow: Flow) -> None:
-            if config:
-                new_config = var_flow_config.get().merge(config).merge(kwargs)
-            else:
-                new_config = var_flow_config.get().merge(kwargs)
-            config_in_flow = getattr(flow, "config", None)  # for binding flow's inheritable config
-            if config_in_flow:
-                new_config = new_config.merge(config_in_flow)
+        def set_new_context_config(flow: Flow) -> None:
+            config_bound_in_flow = flow.config if isinstance(flow, BindingFlow) else {}
+            new_config = var_flow_config.get().merge(config or {}, kwargs, config_bound_in_flow)
             var_flow_config.set(new_config)
 
         @functools.wraps(func)
         def wrapper(self: Flow, *args_: Any, **kwargs_: Any) -> Output:
 
             def run() -> Output:
-                set_new_config(self)
+                set_new_context_config(self)
+                # prepare config argument for func calling
+                if accepts_config(func):
+                    kwargs_.setdefault("config", var_flow_config.get())
+                else:
+                    kwargs_.pop("config", None)
                 return cast(Output, func(self, *args_, **kwargs_))
 
             with new_context(self) as context:
@@ -61,7 +62,12 @@ def flow_context(*args: Any,
         @functools.wraps(func)
         def stream_wrapper(self: Flow, *args_: Any, **kwargs_: Any) -> Iterator[Output]:
             def run_stream() -> Iterator[Output]:
-                set_new_config(self)
+                set_new_context_config(self)
+                # prepare config argument for func calling
+                if accepts_config(func):
+                    kwargs_.setdefault("config", var_flow_config.get())
+                else:
+                    kwargs_.pop("config", None)
                 yield from cast(Iterator[Output], func(self, *args_, **kwargs_))
 
             with new_context(self) as context:
@@ -70,6 +76,7 @@ def flow_context(*args: Any,
                     yield from run_stream()
                 else:
                     iterator = run_stream()
+
                     while True:
                         try:
                             yield context.run(next, iterator)  # type: ignore[arg-type]

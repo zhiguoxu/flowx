@@ -3,17 +3,20 @@ from __future__ import annotations
 import threading
 import uuid
 from contextvars import ContextVar
-from typing import Dict, Any, List
+from typing import Any, List
 
 from pydantic import BaseModel, Field
 
+from core.callbacks.trace import ENABLE_TRACE
+from core.errors import RunStackError
 from core.flow.flow import Flow
+from core.flow.flow_config import FlowConfig
 
 
 class Run(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     flow: Flow
-    config: Dict[str, Any]
+    config: FlowConfig
     input: Any
     output: Any = None
     error: BaseException | None = None
@@ -35,12 +38,12 @@ class RunStack(BaseModel):
     def pop(self) -> Run:
         if not self.is_empty():
             return self.stack.pop()
-        raise IndexError("pop from empty stack")
+        raise RunStackError("pop from empty stack")
 
     def peek(self) -> Run:
         if not self.is_empty():
             return self.stack[-1]
-        raise IndexError("peek from empty stack")
+        raise RunStackError("peek from empty stack")
 
     def size(self) -> int:
         return len(self.stack)
@@ -54,8 +57,7 @@ def push_run_stack(run: Run) -> None:
     if run_stack.is_empty():
         run_stack.push(run)
     else:
-        assert run_stack.peek().flow.id != run.flow.id, \
-            f"Flow has re-enter the stack, maybe you have trace one flow more than once: {run.flow}"
+        assert run_stack.peek().flow is not run.flow, f"Flow has re-enter the stack: {run.flow}"
         parent_thread_id = run_stack.peek().thread_id
         if parent_thread_id == run.thread_id:
             run_stack.push(run)
@@ -70,16 +72,25 @@ def pop_run_stack() -> Run:
 
 
 def current_run_list() -> List[Run]:
+    assert ENABLE_TRACE, "please enable trace!"
     return var_run_stack.get().stack
 
 
 def current_run() -> Run:
+    assert ENABLE_TRACE, "please enable trace!"
     return var_run_stack.get().peek()
 
 
 def current_flow() -> Flow:
+    assert ENABLE_TRACE, "please enable trace!"
     return current_run().flow
 
 
+def current_config() -> FlowConfig:
+    assert ENABLE_TRACE, "please enable trace!"
+    return current_run().config
+
+
 def is_run_stack_empty():
+    assert ENABLE_TRACE, "please enable trace!"
     return var_run_stack.get().is_empty()
