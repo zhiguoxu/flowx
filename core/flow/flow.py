@@ -138,7 +138,7 @@ class FunctionFlow(Flow[Input, Output]):
             output = cast(Output, merge_iterator(output))
 
         if isinstance(output, Flow):
-            # check recurse limitation
+            # check the recurse limitation
             with recurse_flow(self, inp):
                 output = output.invoke(inp)
 
@@ -154,7 +154,7 @@ class FunctionFlow(Flow[Input, Output]):
 
             for o in output:
                 if isinstance(o, Flow):
-                    # check recurse limitation
+                    # check the recurse limitation
                     with recurse_flow(self, inp):
                         yield from o.stream(inp)
                 else:

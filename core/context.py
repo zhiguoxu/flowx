@@ -5,7 +5,7 @@ from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import contextmanager
 
 from core.flow.flow_config import var_flow_config, FlowConfig
-from core.flow.flow import Flow, BindingFlow
+from core.flow.flow import Flow
 from core.utils.utils import is_generator, accepts_config
 
 Output = TypeVar("Output")
@@ -37,8 +37,9 @@ def flow_context(*args: Any,
     def decorator(func: Callable[..., Output | Iterator[Output]]) -> Callable[..., Output | Iterator[Output]]:
 
         def set_new_context_config(flow: Flow) -> None:
+            from core.flow.flow import BindingFlow
             config_bound_in_flow = flow.config if isinstance(flow, BindingFlow) else {}
-            new_config = var_flow_config.get().merge(config or {}, kwargs, config_bound_in_flow)
+            new_config = var_flow_config.get().merge(config or {}, kwargs, config_bound_in_flow or {})
             var_flow_config.set(new_config)
 
         @functools.wraps(func)
