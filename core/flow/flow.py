@@ -107,8 +107,8 @@ class Flow(BaseModel, FlowBase[Input, Output], ABC):
             return BindingFlow(self, local_config=config)
 
     def with_retry(self, *,
-                   retry_exception_types: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception,
-                   is_wait_exponential_jitter: bool = True,
+                   retry_if_exception_type: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception,
+                   wait_exponential_jitter: bool = True,
                    max_attempt: int = 3
                    ) -> RetryFlow[Input, Output]:
         kwargs = filter_kwargs_by_init_or_pydantic(RetryFlow, locals())
@@ -349,10 +349,10 @@ class BindingFlow(BindingFlowBase[Input, Output]):
 
 
 class RetryFlow(BindingFlowBase[Input, Output]):
-    retry_exception_types: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception
+    retry_if_exception_type: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception
     """Retries if an exception has been raised of one or more types."""
 
-    is_wait_exponential_jitter: bool = True
+    wait_exponential_jitter: bool = True
     """Whether to use wait strategy that applies exponential backoff and jitter."""
 
     max_attempt: int = 3
@@ -370,17 +370,22 @@ class RetryFlow(BindingFlowBase[Input, Output]):
         kwargs: Dict[str, Any] = dict(reraise=True)
         if self.max_attempt:
             kwargs["stop"] = stop_after_attempt(self.max_attempt)
-        if self.is_wait_exponential_jitter:
+        if self.wait_exponential_jitter:
             kwargs["wait"] = wait_exponential_jitter()
-        if self.retry_exception_types:
-            kwargs["retry"] = retry_if_exception_type(self.retry_exception_types)
+        if self.retry_if_exception_type:
+            kwargs["retry"] = retry_if_exception_type(self.retry_if_exception_type)
 
         return kwargs
 
     def invoke(self, inp: Input, **kwargs: Any) -> Output:
+        config = kwargs.pop("config")
         for attempt in Retrying(**self.retrying_kwargs):
             with attempt:
-                result = self.bound.invoke(inp, **kwargs)
+                attempt_number = attempt.retry_state.attempt_number
+                new_config = config
+                if attempt_number > 1:
+                    new_config = config.merge({"tags": [f"retry:attempt:{attempt_number}"]})
+                result = self.bound.invoke(inp, config=new_config, **kwargs)
         return result
 
     def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:

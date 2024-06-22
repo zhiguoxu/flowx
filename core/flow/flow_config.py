@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 from typing import Dict, List, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, Extra
 
 from core.utils.utils import get_model_field_type
 
@@ -28,9 +28,11 @@ class FlowConfig(BaseModel):
     """
 
     def merge(self, *others: FlowConfig | Dict) -> FlowConfig:
-        others_dict = [other.model_dump(exclude_unset=True)
-                       if isinstance(other, FlowConfig) else other
-                       for other in others]
+        others_dict = [
+            other.model_dump(exclude_unset=True)
+            if isinstance(other, FlowConfig) else other
+            for other in others
+        ]
 
         data = self.model_dump(exclude_unset=True)
         for other in others_dict:
@@ -49,6 +51,9 @@ class FlowConfig(BaseModel):
             other = other.model_dump(exclude_unset=True)
 
         return self.model_copy(update=other, deep=True)
+
+    class Config:
+        extra = Extra.forbid
 
 
 var_flow_config = ContextVar("flow_config", default=FlowConfig())

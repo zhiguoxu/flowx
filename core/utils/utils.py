@@ -44,10 +44,10 @@ def filter_kwargs_by_init_or_pydantic(model_type: Type[Model],
                                       kwargs: Dict[str, Any],
                                       exclude: set[str] | None = None,
                                       exclude_none: bool = False) -> Dict[str, Any]:
-    kwargs = filter_kwargs_by_method(model_type.__init__, locals(), exclude=exclude, exclude_none=exclude_none)
-    if len(kwargs) == 0:
-        kwargs = filter_kwargs_by_pydantic(model_type, locals(), exclude=exclude, exclude_none=exclude_none)
-    return kwargs
+    if '__init__' in model_type.__dict__:
+        return filter_kwargs_by_method(model_type.__init__, kwargs, exclude=exclude, exclude_none=exclude_none)
+
+    return filter_kwargs_by_pydantic(model_type, kwargs, exclude=exclude, exclude_none=exclude_none)
 
 
 def get_model_field_type(model: Model | Type[Model], key: str):
