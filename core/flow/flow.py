@@ -179,7 +179,7 @@ class SequenceFlow(Flow[Input, Output]):
     def invoke(self, inp: Input) -> Output:
         for step in self.steps:
             inp = step.invoke(inp)
-        return cast(Output, input)
+        return cast(Output, inp)
 
     @trace
     def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
