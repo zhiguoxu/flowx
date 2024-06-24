@@ -4,9 +4,9 @@ from typing import Any, Union, Callable, TypeVar, ParamSpec, Generator, Iterable
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import contextmanager
 
-from core.flow.flow_config import var_flow_config, FlowConfig
+from core.flow.flow_config import var_flow_config, FlowConfig, var_cur_config
 from core.flow.flow import Flow
-from core.utils.utils import is_generator, accepts_config
+from core.utils.utils import is_generator
 
 Output = TypeVar("Output")
 
@@ -38,20 +38,21 @@ def flow_context(*args: Any,
 
         def set_new_context_config(flow: Flow) -> None:
             from core.flow.flow import BindingFlow
+            # set inheritable var_flow_config
             config_bound_in_flow: FlowConfig | Dict = (flow.config or {}) if isinstance(flow, BindingFlow) else {}
             new_config = var_flow_config.get().merge(config or {}, kwargs, config_bound_in_flow)
             var_flow_config.set(new_config)
+
+            # set not inheritable by local_config to var_flow_config
+            if isinstance(flow, BindingFlow) and flow.local_config:
+                new_config = new_config.merge(flow.local_config)
+            var_cur_config.set(new_config)
 
         @functools.wraps(func)
         def wrapper(self: Flow, *args_: Any, **kwargs_: Any) -> Output:
 
             def run() -> Output:
                 set_new_context_config(self)
-                # prepare config argument for func calling
-                if accepts_config(func):
-                    kwargs_.setdefault("config", var_flow_config.get())
-                else:
-                    kwargs_.pop("config", None)
                 return cast(Output, func(self, *args_, **kwargs_))
 
             with new_context(self) as context:
@@ -64,11 +65,6 @@ def flow_context(*args: Any,
         def stream_wrapper(self: Flow, *args_: Any, **kwargs_: Any) -> Iterator[Output]:
             def run_stream() -> Iterator[Output]:
                 set_new_context_config(self)
-                # prepare config argument for func calling
-                if accepts_config(func):
-                    kwargs_.setdefault("config", var_flow_config.get())
-                else:
-                    kwargs_.pop("config", None)
                 yield from cast(Iterator[Output], func(self, *args_, **kwargs_))
 
             with new_context(self) as context:

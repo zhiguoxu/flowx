@@ -153,17 +153,6 @@ def accepts_any_kwargs(func: Callable[..., Any]):
     return arg_spec.varkw and arg_spec.annotations.get(arg_spec.varkw, Any) in (Any, "Any")
 
 
-def accepts_config(func: Callable[..., Any]) -> bool:
-    return accepts_input_var(func, "config") or accepts_any_kwargs(func)
-
-
-def filter_config_by_method(kwargs: Dict[str, Any], func: Callable[..., Any]):
-    if accepts_config(func):
-        return kwargs
-
-    return {k: v for k, v in kwargs.items() if k != "config"}
-
-
 def env_is_set(env_var: str, default: bool | None = None) -> bool:
     if default is not None and env_var not in os.environ:
         return default

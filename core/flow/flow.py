@@ -13,12 +13,12 @@ from typing_extensions import Self
 
 from core.callbacks.trace import trace
 from core.flow.addable_dict import AddableDict
-from core.flow.flow_config import FlowConfig
+from core.flow.flow_config import FlowConfig, var_cur_config
 from core.flow.utils import recurse_flow, ConfigurableField
 from core.logging import get_logger
 from core.utils.iter import safe_tee, merge_iterator
-from core.utils.utils import filter_kwargs_by_pydantic, is_generator, \
-    is_async_generator, filter_config_by_method, filter_kwargs_by_init_or_pydantic, to_pydantic_obj, NOT_GIVEN
+from core.utils.utils import filter_kwargs_by_pydantic, is_generator, is_async_generator, \
+    filter_kwargs_by_init_or_pydantic, to_pydantic_obj, NOT_GIVEN
 
 Input = TypeVar("Input", contravariant=True)
 Output = TypeVar("Output", covariant=True)
@@ -41,16 +41,9 @@ class FlowBase(Generic[Input, Output], ABC):
     @empty_flow_context
     def invoke(self, inp: Input) -> Output:
         """
-        Normally the inp contain all info we need, but in the following 2 case we need others:
-        1. config(FlowConfig) of Flow, constructed by merge context config and local_config(if it has),
-            If you don't want config input, you can exclude it from override invoke's arguments list.
-        2. Extra local kwargs, which is bound in BindingFlow object, ( use it by calling Flow.bind(k=v) )
-            the bound kwargs will pass to inner Flow.invoke, and inner Flow.invoke must accept it.
-
+        Normally the inp contain all info we need, but if you bind extra kwargs by calling Flow.bind(k=v),
+        the bound kwargs will pass to inner Flow.invoke, and inner Flow.invoke must accept it.
         The same applies to stream and transform method.
-
-        Except for inp and kwargs in BindingFlow(use by Flow.bind),
-        FlowConfig's configurable is another way to pass arg.
         """
 
     @abstractmethod
@@ -195,8 +188,6 @@ class FunctionFlow(Flow[Input, Output]):
 
     @trace
     def invoke(self, inp: Input, **kwargs: Any) -> Output:
-        # Remove config if self.func don't want.
-        kwargs = filter_config_by_method(kwargs, self.func)
         output = self.func(inp, **kwargs)
         if is_generator(self.func):
             assert isinstance(output, Iterator)
@@ -211,8 +202,6 @@ class FunctionFlow(Flow[Input, Output]):
 
     @trace
     def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
-        # Remove config if self.func don't want.
-        kwargs = filter_config_by_method(kwargs, self.func)
         output = self.func(inp, **kwargs)
         if is_generator(self.func):
             assert isinstance(output, Iterator)
@@ -346,7 +335,7 @@ class GeneratorFlow(Flow[Input, Output]):
     def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
         # todo support self.a_transform
         assert self.generator
-        yield from self.generator(inp, **filter_config_by_method(kwargs, self.generator))
+        yield from self.generator(inp, **kwargs)
 
 
 class BindingFlowBase(Flow[Input, Output], ABC):
@@ -390,23 +379,14 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         super().__init__(**init_kwargs)
 
     def invoke(self, inp: Input, **kwargs: Any) -> Output:
-        kwargs = {**self.kwargs, **kwargs}
-        if self.local_config:
-            kwargs["config"] = kwargs["config"].merge(self.local_config)
-        return self.get_bound(kwargs["config"]).invoke(inp, **kwargs)
+        return self.get_bound().invoke(inp, **{**self.kwargs, **kwargs})
         # Not every invoke accept **kwargs, so if you bind kwargs, it must be accepted by inner flow.
 
     def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
-        kwargs = {**self.kwargs, **kwargs}
-        if self.local_config:
-            kwargs["config"] = kwargs["config"].merge(self.local_config)
-        yield from self.get_bound(kwargs["config"]).stream(inp, **kwargs)
+        yield from self.get_bound().stream(inp, **{**self.kwargs, **kwargs})
 
     def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
-        kwargs = {**self.kwargs, **kwargs}
-        if self.local_config:
-            kwargs["config"] = kwargs["config"].merge(self.local_config)
-        yield from self.get_bound(kwargs.pop("config")).transform(inp, **kwargs)
+        yield from self.get_bound().transform(inp, **{**self.kwargs, **kwargs})
 
     def with_retry(self, **kwargs: Any) -> BindingFlow[Input, Output]:  # type: ignore[override]
         return BindingFlow(
@@ -416,10 +396,11 @@ class BindingFlow(BindingFlowBase[Input, Output]):
             local_config=self.local_config
         )
 
-    def get_bound(self, config: FlowConfig) -> FlowBase[Input, Output]:
+    def get_bound(self) -> FlowBase[Input, Output]:
+        configurable = var_cur_config.get().configurable
         update_fields = {}
         for k, field in self.fields.items():
-            value = config.configurable.get(field.name, field.default)
+            value = configurable.get(field.name, field.default)
             if value is not NOT_GIVEN:
                 update_fields[k] = value
 
@@ -464,14 +445,12 @@ class RetryFlow(BindingFlowBase[Input, Output]):
         return kwargs
 
     def invoke(self, inp: Input, **kwargs: Any) -> Output:
-        config = kwargs.pop("config")
         for attempt in Retrying(**self.retrying_kwargs):
             with attempt:
                 attempt_number = attempt.retry_state.attempt_number
-                new_config = config
                 if attempt_number > 1:
-                    new_config = config.merge({"tags": [f"retry:attempt:{attempt_number}"]})
-                result = self.bound.invoke(inp, config=new_config, **kwargs)
+                    var_cur_config.set(var_cur_config.get().merge({"tags": [f"retry:attempt:{attempt_number}"]}))
+                result = self.bound.invoke(inp, **kwargs)
         return result
 
     def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:

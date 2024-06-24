@@ -7,7 +7,6 @@ from typing import Any, List
 
 from pydantic import BaseModel, Field
 
-from core.callbacks.trace import ENABLE_TRACE
 from core.errors import RunStackError
 from core.flow.flow import Flow
 from core.flow.flow_config import FlowConfig
@@ -72,25 +71,25 @@ def pop_run_stack() -> Run:
 
 
 def current_run_list() -> List[Run]:
-    assert ENABLE_TRACE, "please enable trace!"
     return var_run_stack.get().stack
 
 
 def current_run() -> Run:
-    assert ENABLE_TRACE, "please enable trace!"
     return var_run_stack.get().peek()
 
 
 def current_flow() -> Flow:
-    assert ENABLE_TRACE, "please enable trace!"
     return current_run().flow
 
 
 def current_config() -> FlowConfig:
-    assert ENABLE_TRACE, "please enable trace!"
     return current_run().config
 
 
 def is_run_stack_empty():
-    assert ENABLE_TRACE, "please enable trace!"
     return var_run_stack.get().is_empty()
+
+
+def check_cur_flow(flow: Any):
+    if current_flow() != flow:
+        raise RunStackError(f"Run stack error, flow run in error stack:【{flow}】in【{current_flow()}】")

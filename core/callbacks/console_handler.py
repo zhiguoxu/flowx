@@ -3,11 +3,10 @@ from typing import Any
 from core.callbacks.callback_handler import CallbackHandler
 from core.callbacks.run import current_run_list
 from core.flow.flow import Flow
-from core.flow.flow_config import FlowConfig
 
 
 class ConsoleHandler(CallbackHandler):
-    def on_flow_start(self, flow: Flow, inp: Any, config: FlowConfig, **kwargs: Any) -> bool:
+    def on_flow_start(self, flow: Flow, inp: Any, **kwargs: Any) -> bool:
         print(f"{get_breadcrumbs()}: on_flow_start: {inp}, {kwargs if kwargs else ''}")
         return True
 

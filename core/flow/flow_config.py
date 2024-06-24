@@ -57,4 +57,8 @@ class FlowConfig(BaseModel):
         extra = "forbid"
 
 
+# inheritable config
 var_flow_config = ContextVar("flow_config", default=FlowConfig())
+
+# current config = inheritable config + local config
+var_cur_config = ContextVar("cur_flow_config", default=FlowConfig())

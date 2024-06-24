@@ -21,13 +21,13 @@ class LLM(Flow[LLMInput, ChatMessage]):
     tools: List[Tool] | None = None
     tool_choice: ToolChoiceType | None = None
 
-    def invoke(self, inp: LLMInput) -> ChatMessage:
+    def invoke(self, inp: LLMInput, **kwargs: Any) -> ChatMessage:
         messages = to_chat_messages(inp)
-        return self.chat(messages).messages[0]
+        return self.chat(messages, **kwargs).messages[0]
 
-    def stream(self, inp: LLMInput) -> Iterator[ChatMessageChunk]:  # type: ignore[override]
+    def stream(self, inp: LLMInput, **kwargs: Any) -> Iterator[ChatMessageChunk]:  # type: ignore[override]
         messages = to_chat_messages(inp)
-        result = self.stream_chat(messages)
+        result = self.stream_chat(messages, **kwargs)
         assert result.message_stream
         for message_chunk, _ in result.message_stream:
             yield message_chunk
