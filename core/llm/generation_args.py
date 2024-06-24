@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from pydantic import BaseModel, Field, Extra
+from pydantic import BaseModel, Field
 
 
 class GenerationArgs(BaseModel):
@@ -26,4 +26,4 @@ class GenerationArgs(BaseModel):
     extra_kwargs: Dict | None = Field(default=None, description="Other generation parameters.")
 
     class Config:
-        extra = Extra.forbid
+        extra = "forbid"

@@ -1,8 +1,10 @@
 import inspect
 import os
-from typing import Callable, List, Dict, Any, Type, TypeGuard, Iterator, AsyncIterator
+from typing import Callable, List, Dict, Any, Type, TypeGuard, Iterator, AsyncIterator, get_type_hints, \
+    Mapping, Literal
 
-from pydantic.main import Model
+from overrides import override
+from pydantic.main import Model, BaseModel
 
 
 def get_method_parameters(obj: Callable[..., Any],
@@ -27,7 +29,7 @@ def filter_kwargs_by_method(obj: Callable[..., Any],
     }
 
 
-def filter_kwargs_by_pydantic(model_type: Type[Model],
+def filter_kwargs_by_pydantic(model_type: Type[Model] | Model,
                               kwargs: Dict[str, Any],
                               exclude: set[str] | None = None,
                               exclude_none: bool = False) -> Dict[str, Any]:
@@ -40,32 +42,89 @@ def filter_kwargs_by_pydantic(model_type: Type[Model],
     }
 
 
-def filter_kwargs_by_init_or_pydantic(model_type: Type[Model],
+def filter_kwargs_by_init_or_pydantic(model_type: Type[Model] | Model,
                                       kwargs: Dict[str, Any],
                                       exclude: set[str] | None = None,
                                       exclude_none: bool = False) -> Dict[str, Any]:
-    if '__init__' in model_type.__dict__:
+    if not isinstance(model_type, type):
+        model_type = model_type.__class__
+
+    if model_type.__init__ is not BaseModel.__init__:
         return filter_kwargs_by_method(model_type.__init__, kwargs, exclude=exclude, exclude_none=exclude_none)
 
     return filter_kwargs_by_pydantic(model_type, kwargs, exclude=exclude, exclude_none=exclude_none)
 
 
-def get_model_field_type(model: Model | Type[Model], key: str):
-    field_type = model.__annotations__.get(key)
-    if not field_type:
-        return None
+def to_pydantic_obj(model_type: Type, obj: Any) -> Any:
+    if hasattr(model_type, "__origin__") and hasattr(model_type, "__args__"):
+        type_args = model_type.__args__
+        model_type = model_type.__origin__
 
-    type_map = dict(List=list, Set=set, Tuple=tuple)
-    if isinstance(field_type, str):
-        # If caller use 'from __future__ import annotations', field_type's type will be str.
-        for k, t in type_map.items():
-            if field_type.startswith(k):
-                return t
+        if model_type in (list, tuple, set):
+            return model_type(to_pydantic_obj(type_args[0], item) for item in obj)
 
-    elif hasattr(field_type, '__origin__'):
-        return field_type.__origin__
+        if model_type in (dict, Mapping):
+            return {k: to_pydantic_obj(type_args[1], v) for k, v in obj.items()}
 
-    return field_type
+    # convert dict to BaseModel
+    if ((isinstance(obj, dict) and "class_type" in obj) or
+            (hasattr(model_type, "__mro__") and
+             BaseModel in model_type.__mro__ and
+             not isinstance(obj, BaseModel))):
+        assert isinstance(obj, Dict)
+        class_type = obj.get("class_type", model_type)
+        fields_type_hints = get_type_hints(class_type)
+
+        kwargs = {}
+        for key, value in obj.items():
+            if sub_type := fields_type_hints.get(key):
+                value = to_pydantic_obj(sub_type, value)
+            kwargs[key] = value
+
+        init_kwargs = filter_kwargs_by_method(class_type.__init__, kwargs)
+        if not init_kwargs:
+            return class_type(**kwargs)
+
+        # 1. init by __init__;
+        pydantic_obj = class_type(**init_kwargs)
+        # 2. set the rest fields.
+        kwargs = {k: v for k, v in kwargs.items() if k not in init_kwargs}
+        copy_if_unset(kwargs, pydantic_obj)
+        return pydantic_obj
+
+    return obj
+
+
+def copy_if_unset(src: Dict, dst: Model | Dict, deep: bool = True) -> None:
+    if isinstance(dst, dict):
+        assert isinstance(src, dict)
+        for key, value in src.items():
+            if key not in dst or dst[key] is NotGiven:
+                dst[key] = value
+            elif deep:
+                if isinstance(value, BaseModel):
+                    value = value.model_dump()
+                dst_value = dst[key]
+                if isinstance(dst_value, BaseModel):
+                    assert isinstance(value, dict)
+                    copy_if_unset(value, dst_value)
+                elif isinstance(dst_value, dict):
+                    assert isinstance(value, dict)
+                    copy_if_unset(value, dst_value)
+    else:
+        for key, value in src.items():
+            if key not in dst.__pydantic_fields_set__:
+                setattr(dst, key, value)
+            elif deep:
+                if isinstance(value, BaseModel):
+                    value = value.model_dump()
+                dst_value = getattr(dst, key)
+                if isinstance(dst_value, BaseModel):
+                    assert isinstance(value, dict)
+                    copy_if_unset(value, dst_value)
+                elif isinstance(dst_value, dict):
+                    assert isinstance(value, dict)
+                    copy_if_unset(value, dst_value)
 
 
 def is_generator(func: Any) -> TypeGuard[Callable[..., Iterator]]:
@@ -115,3 +174,15 @@ def env_is_set(env_var: str, default: bool | None = None) -> bool:
         "false",
         "False",
     )
+
+
+class NotGiven:
+    def __bool__(self) -> Literal[False]:
+        return False
+
+    @override
+    def __repr__(self) -> str:
+        return "NOT_GIVEN"
+
+
+NOT_GIVEN = NotGiven()

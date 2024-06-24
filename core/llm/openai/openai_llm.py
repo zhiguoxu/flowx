@@ -19,12 +19,11 @@ class OpenAILLM(LLM):
     base_url: str | None = None
     max_retries: int = 2
     timeout: float = 20  # seconds
-    system_prompt: str | None = Field(default=None, description="System prompt for LLM calls.")
-    stream_include_usage: bool = Field(default=False, description="Refer to ChatCompletionChunk.usage and"
-                                                                  " ChatCompletionStreamOptionsParam")
-
-    # [{"type": "function", "function": {"description": "xxx", "name": "yyy", "parameters": { json format }}}]
-    # refer to https://platform.openai.com/docs/api-reference/chat/create for json format
+    system_prompt: str | None = None
+    stream_include_usage: bool = Field(
+        default=False,
+        description="Refer to ChatCompletionChunk.usage and ChatCompletionStreamOptionsParam"
+    )
 
     def __init__(self,
                  model: str | ChatModel = "gpt-3.5-turbo",
@@ -44,7 +43,7 @@ class OpenAILLM(LLM):
 
         generation_kwargs = filter_kwargs_by_pydantic(GenerationArgs, locals(), exclude_none=True)
         generation_args = GenerationArgs(**generation_kwargs)
-        kwargs = filter_kwargs_by_pydantic(type(self), locals(), exclude_none=True)
+        kwargs = filter_kwargs_by_pydantic(self, locals(), exclude_none=True)
         super().__init__(**kwargs)
 
     def chat(self, messages: List[ChatMessage] | str, **kwargs: Any) -> ChatResult:

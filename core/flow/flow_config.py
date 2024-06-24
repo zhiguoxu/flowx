@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Mapping, get_type_hints
 
-from pydantic import BaseModel, Field, Extra
-
-from core.utils.utils import get_model_field_type
+from pydantic import BaseModel, Field
 
 
 class FlowConfig(BaseModel):
@@ -22,7 +20,7 @@ class FlowConfig(BaseModel):
 
     configurable: Dict[str, Any] = Field(default_factory=dict)
     """
-    Bound arguments to the fields of Flow obj,
+    The arguments bound to the fields of Flow obj,
     the【configurable】's visibility will be transmitted to sub flow with context var of FlowConfig,
     so it is somehow like global variables work in Flow scope.
     """
@@ -37,11 +35,14 @@ class FlowConfig(BaseModel):
         data = self.model_dump(exclude_unset=True)
         for other in others_dict:
             for key, value in other.items():
-                field_type = get_model_field_type(self, key)
-                if field_type is list:
-                    value = (data.get(key) or []) + value
-                elif field_type is set:
-                    value = (data.get(key) or set()) | value
+                field_type = get_type_hints(self.__class__)[key]
+                origin_type = field_type.__origin__ if hasattr(field_type, "__origin__") else None
+                if origin_type in (list, tuple):
+                    value = data.get(key, origin_type()) + value
+                elif origin_type in (set, dict):
+                    value = data.get(key, origin_type()) | value
+                elif origin_type is Mapping:
+                    value = dict(data.get(key, {})) | value
                 data[key] = value
 
         return FlowConfig(**data)
@@ -53,7 +54,7 @@ class FlowConfig(BaseModel):
         return self.model_copy(update=other, deep=True)
 
     class Config:
-        extra = Extra.forbid
+        extra = "forbid"
 
 
 var_flow_config = ContextVar("flow_config", default=FlowConfig())

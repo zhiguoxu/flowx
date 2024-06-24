@@ -26,7 +26,7 @@ class Tool(BaseModel, Generic[ToolOutput]):
         args_schema = args_schema or create_schema_from_function(function)
         args_schema.__name__ = name or args_schema.__name__
         args_schema.__doc__ = description or function.__doc__ or args_schema.__doc__
-        kwargs = filter_kwargs_by_pydantic(type(self), locals())
+        kwargs = filter_kwargs_by_pydantic(self, locals())
         super().__init__(**kwargs)
 
     def __call__(self, *args: Any, **kwargs: Any) -> ToolOutput:

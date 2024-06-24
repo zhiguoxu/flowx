@@ -38,8 +38,8 @@ def flow_context(*args: Any,
 
         def set_new_context_config(flow: Flow) -> None:
             from core.flow.flow import BindingFlow
-            config_bound_in_flow = flow.config if isinstance(flow, BindingFlow) else {}
-            new_config = var_flow_config.get().merge(config or {}, kwargs, config_bound_in_flow or {})
+            config_bound_in_flow: FlowConfig | Dict = (flow.config or {}) if isinstance(flow, BindingFlow) else {}
+            new_config = var_flow_config.get().merge(config or {}, kwargs, config_bound_in_flow)
             var_flow_config.set(new_config)
 
         @functools.wraps(func)

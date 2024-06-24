@@ -21,9 +21,9 @@ class LLM(Flow[LLMInput, ChatMessage]):
     tools: List[Tool] | None = None
     tool_choice: ToolChoiceType | None = None
 
-    def invoke(self, inp: LLMInput, **kwargs: Any) -> ChatMessage:
+    def invoke(self, inp: LLMInput) -> ChatMessage:
         messages = to_chat_messages(inp)
-        return self.chat(messages, **kwargs).messages[0]
+        return self.chat(messages).messages[0]
 
     def stream(self, inp: LLMInput) -> Iterator[ChatMessageChunk]:  # type: ignore[override]
         messages = to_chat_messages(inp)
