@@ -4,7 +4,7 @@ from typing import Any, Union, Callable, TypeVar, ParamSpec, Generator, Iterable
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import contextmanager
 
-from core.flow.flow_config import var_flow_config, FlowConfig, var_cur_config
+from core.flow.flow_config import var_flow_config, FlowConfig, var_local_config
 from core.flow.flow import Flow
 from core.utils.utils import is_generator
 
@@ -15,77 +15,75 @@ var_context_cache: ContextVar[Dict[str, Tuple[Context, int]]] = ContextVar("cont
 
 @contextmanager
 def new_context(obj: Flow) -> Iterator[Context]:
+    # 1. create new context or inc reference
     cache = cast(Dict[str, Tuple[Context, int]], var_context_cache.get())
     if obj.id not in cache.keys():
         ctx, count = copy_context().copy(), 0
     else:
         ctx, count = cache[obj.id]
     cache[obj.id] = ctx, count + 1
-    yield cast(Context, ctx if count == 0 else None)  # prevent re-enter the same context
-    ctx, count = cache[obj.id]
-    if count == 1:
-        cache.pop(obj.id)
-    else:
-        cache[obj.id] = ctx, count - 1
+
+    try:
+        yield cast(Context, ctx if count == 0 else None)  # prevent re-enter the same context
+    finally:
+        # 2. release context or dec reference
+        ctx, count = cache[obj.id]
+        if count == 1:
+            cache.pop(obj.id)
+        else:
+            cache[obj.id] = ctx, count - 1
 
 
-def flow_context(*args: Any,
-                 config: FlowConfig | Dict | None = None,
-                 **kwargs: Any  # config fields in kwargs format
-                 ) -> Union[Callable, Callable[[Callable], Callable]]:
+def flow_context(func: Callable[..., Output | Iterator[Output]]) -> Union[Callable, Callable[[Callable], Callable]]:
+    def set_new_context_config(flow: Flow, local_config: FlowConfig | None) -> None:
+        from core.flow.flow import BindingFlow
+        # set var_flow_config (inheritable)
+        config_bound_in_flow: FlowConfig | Dict = (flow.config or {}) if isinstance(flow, BindingFlow) else {}
+        new_config = var_flow_config.get().merge(config_bound_in_flow)
+        var_flow_config.set(new_config)
 
-    def decorator(func: Callable[..., Output | Iterator[Output]]) -> Callable[..., Output | Iterator[Output]]:
+        # set var_local_config (not inheritable)
+        var_local_config.set(local_config)
 
-        def set_new_context_config(flow: Flow) -> None:
-            from core.flow.flow import BindingFlow
-            # set inheritable var_flow_config
-            config_bound_in_flow: FlowConfig | Dict = (flow.config or {}) if isinstance(flow, BindingFlow) else {}
-            new_config = var_flow_config.get().merge(config or {}, kwargs, config_bound_in_flow)
-            var_flow_config.set(new_config)
+    @functools.wraps(func)
+    def wrapper(self: Flow, inp: Any, local_config: FlowConfig | None = None, /, **kwargs_: Any) -> Output:
 
-            # set not inheritable by local_config to var_flow_config
-            if isinstance(flow, BindingFlow) and flow.local_config:
-                new_config = new_config.merge(flow.local_config)
-            var_cur_config.set(new_config)
+        def run(first_enter: bool = True) -> Output:
+            if first_enter:
+                set_new_context_config(self, local_config)
+            return cast(Output, func(self, inp, **kwargs_))
 
-        @functools.wraps(func)
-        def wrapper(self: Flow, *args_: Any, **kwargs_: Any) -> Output:
+        with new_context(self) as context:
+            if context is None:
+                # prevent re-enter the same context
+                assert local_config is None, "local_config only pass first call"
+                return run(False)
+            return context.run(run)
 
-            def run() -> Output:
-                set_new_context_config(self)
-                return cast(Output, func(self, *args_, **kwargs_))
+    @functools.wraps(func)
+    def stream_wrapper(self: Flow,
+                       inp: Any,
+                       local_config: FlowConfig | None = None, /,
+                       **kwargs_: Any) -> Iterator[Output]:
+        def run_stream(first_enter: bool = True) -> Iterator[Output]:
+            if first_enter:
+                set_new_context_config(self, local_config)
+            yield from cast(Iterator[Output], func(self, inp, **kwargs_))
 
-            with new_context(self) as context:
-                if context is None:
-                    # prevent re-enter the same context
-                    return run()
-                return context.run(run)
+        with new_context(self) as context:
+            if context is None:
+                # prevent re-enter the same context
+                assert local_config is None, "local_config only pass first call"
+                yield from run_stream(False)
+            else:
+                iterator = run_stream()
+                while True:
+                    try:
+                        yield context.run(next, iterator)  # type: ignore[arg-type]
+                    except StopIteration:
+                        break
 
-        @functools.wraps(func)
-        def stream_wrapper(self: Flow, *args_: Any, **kwargs_: Any) -> Iterator[Output]:
-            def run_stream() -> Iterator[Output]:
-                set_new_context_config(self)
-                yield from cast(Iterator[Output], func(self, *args_, **kwargs_))
-
-            with new_context(self) as context:
-                if context is None:
-                    # prevent re-enter the same context
-                    yield from run_stream()
-                else:
-                    iterator = run_stream()
-
-                    while True:
-                        try:
-                            yield context.run(next, iterator)  # type: ignore[arg-type]
-                        except StopIteration:
-                            break
-
-        return stream_wrapper if is_generator(func) else wrapper  # type: ignore[return-value]
-
-    if len(args) == 1 and callable(args[0]):
-        return decorator(args[0])
-
-    return decorator
+    return stream_wrapper if is_generator(func) else wrapper  # type: ignore[return-value]
 
 
 P = ParamSpec("P")

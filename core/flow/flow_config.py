@@ -7,10 +7,10 @@ from pydantic import BaseModel, Field
 
 
 class FlowConfig(BaseModel):
-    recursion_limit: int = Field(default=20)
+    recursion_limit: int = 20
     """Maximum number of times a call can recurse. (must inheritable)"""
 
-    max_concurrency: int | None = Field(default=None)  # can not be local
+    max_concurrency: int | None = None  # can not be local
     """Maximum number of parallel calls to make. (must inheritable)"""
 
     tags: List[str] = Field(default_factory=list)
@@ -60,5 +60,13 @@ class FlowConfig(BaseModel):
 # inheritable config
 var_flow_config = ContextVar("flow_config", default=FlowConfig())
 
-# current config = inheritable config + local config
-var_cur_config = ContextVar("cur_flow_config", default=FlowConfig())
+# local config
+var_local_config = ContextVar[FlowConfig | None]("local_config")
+
+
+def get_cur_config() -> FlowConfig:
+    """current config = inheritable config + local config"""
+    local_config = var_local_config.get()
+    if local_config is None:
+        return var_flow_config.get()
+    return var_flow_config.get().merge(local_config)

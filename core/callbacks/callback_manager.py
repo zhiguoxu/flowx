@@ -4,7 +4,7 @@ from core.callbacks.console_handler import ConsoleHandler
 from core.callbacks.run import Run, current_flow, push_run_stack, current_run, pop_run_stack, is_run_stack_empty, \
     current_config
 from core.flow.flow import Flow
-from core.flow.flow_config import var_cur_config
+from core.flow.flow_config import get_cur_config
 from core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -19,7 +19,7 @@ class CallbackManager(CallbackHandler):
             logger.warning(f"Flow re-enter on_flow_start, please check and remove extra @trace. Flow:【{flow}】")
             return False
 
-        run = Run(flow=flow, input=inp, config=var_cur_config.get())
+        run = Run(flow=flow, input=inp, config=get_cur_config())
         push_run_stack(run)
         self.handler_event("on_flow_start", flow, inp=inp, **kwargs)
         return True

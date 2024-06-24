@@ -13,7 +13,7 @@ from typing_extensions import Self
 
 from core.callbacks.trace import trace
 from core.flow.addable_dict import AddableDict
-from core.flow.flow_config import FlowConfig, var_cur_config
+from core.flow.flow_config import FlowConfig, get_cur_config, var_local_config
 from core.flow.utils import recurse_flow, ConfigurableField
 from core.logging import get_logger
 from core.utils.iter import safe_tee, merge_iterator
@@ -378,15 +378,15 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         init_kwargs = filter_kwargs_by_pydantic(self, locals(), exclude_none=True)
         super().__init__(**init_kwargs)
 
-    def invoke(self, inp: Input, **kwargs: Any) -> Output:
-        return self.get_bound().invoke(inp, **{**self.kwargs, **kwargs})
+    def invoke(self, inp: Input) -> Output:
+        return self.get_bound().invoke(inp, self.local_config, **self.kwargs)
         # Not every invoke accept **kwargs, so if you bind kwargs, it must be accepted by inner flow.
 
-    def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
-        yield from self.get_bound().stream(inp, **{**self.kwargs, **kwargs})
+    def stream(self, inp: Input) -> Iterator[Output]:
+        yield from self.get_bound().stream(inp, self.local_config, **self.kwargs)
 
-    def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
-        yield from self.get_bound().transform(inp, **{**self.kwargs, **kwargs})
+    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
+        yield from self.get_bound().transform(inp, self.local_config, **self.kwargs)
 
     def with_retry(self, **kwargs: Any) -> BindingFlow[Input, Output]:  # type: ignore[override]
         return BindingFlow(
@@ -397,7 +397,7 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         )
 
     def get_bound(self) -> FlowBase[Input, Output]:
-        configurable = var_cur_config.get().configurable
+        configurable = get_cur_config().configurable
         update_fields = {}
         for k, field in self.fields.items():
             value = configurable.get(field.name, field.default)
@@ -448,18 +448,23 @@ class RetryFlow(BindingFlowBase[Input, Output]):
         for attempt in Retrying(**self.retrying_kwargs):
             with attempt:
                 attempt_number = attempt.retry_state.attempt_number
+                local_config = var_local_config.get()
                 if attempt_number > 1:
-                    var_cur_config.set(var_cur_config.get().merge({"tags": [f"retry:attempt:{attempt_number}"]}))
-                result = self.bound.invoke(inp, **kwargs)
+                    retry_config = {"tags": [f"retry:attempt:{attempt_number}"]}
+                    if local_config:
+                        local_config = local_config.merge(retry_config)
+                    else:
+                        local_config = FlowConfig(**retry_config)  # type: ignore[arg-type]
+                result = self.bound.invoke(inp, local_config, **kwargs)
         return result
 
     def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
         logger.warning("RetryFlow doesn't work in stream.")
-        yield from self.bound.stream(inp, **kwargs)
+        yield from self.bound.stream(inp, var_local_config.get(), **kwargs)
 
     def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
         logger.warning("RetryFlow doesn't work in transform.")
-        yield from self.bound.transform(inp, **kwargs)
+        yield from self.bound.transform(inp, var_local_config.get(), **kwargs)
 
 
 FlowLike_ = Union[
