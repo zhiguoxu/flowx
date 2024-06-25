@@ -185,7 +185,7 @@ class Flow(BaseModel, FlowBase[Input, Output], ABC):
         keys = [keys] if isinstance(keys, str) else keys
         return self | PickFlow(keys=keys)
 
-    def assign(self, **kwargs: FlowLike[Input, Any]) -> FlowBase[Input, Dict[str, Any]]:
+    def assign(self, **kwargs: FlowLike[Input, Any]) -> SequenceFlow[Input, Dict[str, Any]]:
         return self | ParallelFlow(steps=kwargs, steps_without_key=[identity])
 
 
