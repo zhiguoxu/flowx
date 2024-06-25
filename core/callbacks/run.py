@@ -3,10 +3,11 @@ from __future__ import annotations
 import threading
 import uuid
 from contextvars import ContextVar
-from typing import Any, List
+from typing import Any, List, Dict
 
 from pydantic import BaseModel, Field
 
+from core.callbacks.trace import ENABLE_TRACE
 from core.errors import RunStackError
 from core.flow.flow import Flow
 from core.flow.flow_config import FlowConfig
@@ -20,6 +21,10 @@ class Run(BaseModel):
     output: Any = None
     error: BaseException | None = None
     thread_id: int = Field(default_factory=threading.get_ident)
+    extra_data: Dict[str, Any] = Field(default_factory=dict)
+
+    def update_extra_data(self, **kwargs: Any):
+        self.extra_data.update(kwargs)
 
     class Config:
         arbitrary_types_allowed = True
@@ -71,10 +76,12 @@ def pop_run_stack() -> Run:
 
 
 def current_run_list() -> List[Run]:
+    assert ENABLE_TRACE, "Please enable trace by set env 'FLOW_ENABLE_TRACE' and use @trace!"
     return var_run_stack.get().stack
 
 
 def current_run() -> Run:
+    assert ENABLE_TRACE, "Please enable trace by set env 'FLOW_ENABLE_TRACE' and use @trace!"
     return var_run_stack.get().peek()
 
 

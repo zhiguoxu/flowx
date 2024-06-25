@@ -47,7 +47,6 @@ class OpenAILLM(LLM):
         kwargs = filter_kwargs_by_pydantic(self, locals(), exclude_none=True)
         super().__init__(**kwargs)
 
-    @trace
     def chat(self, messages: List[ChatMessage] | str, **kwargs: Any) -> ChatResult:
         return self._chat_(messages, **kwargs).merge_chunk()
 

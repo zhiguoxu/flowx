@@ -1,17 +1,18 @@
 from typing import Any
 
 from core.callbacks.callback_handler import CallbackHandler
-from core.callbacks.run import current_run_list
+from core.callbacks.run import current_run_list, current_run
 from core.flow.flow import Flow
 
 
 class ConsoleHandler(CallbackHandler):
     def on_flow_start(self, flow: Flow, inp: Any, **kwargs: Any) -> bool:
-        print(f"{get_breadcrumbs()}: on_flow_start: {inp}, {kwargs if kwargs else ''}")
+        print(f"{get_breadcrumbs()}: on_flow_start: {inp}{f', {kwargs}' if kwargs else ''}")
         return True
 
     def on_flow_end(self, output: Any) -> None:
-        print(f"{get_breadcrumbs()}: on_flow_end: {output}")
+        extra_data = current_run().extra_data
+        print(f"{get_breadcrumbs()}: on_flow_end: {output}{f', {extra_data}' if extra_data else ''}")
 
     def on_flow_error(self, e: BaseException) -> None:
         print(f"{get_breadcrumbs()}: on_flow_error: {e}")

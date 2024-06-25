@@ -58,7 +58,7 @@ class FlowConfig(BaseModel):
 
 
 # inheritable config
-var_flow_config = ContextVar("flow_config", default=FlowConfig())
+var_flow_config = ContextVar[FlowConfig]("flow_config", default=FlowConfig())
 
 # local config
 var_local_config = ContextVar[FlowConfig | None]("local_config")

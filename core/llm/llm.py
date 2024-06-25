@@ -5,6 +5,8 @@ from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any
 
 from pydantic import Field, BaseModel
 
+from core.callbacks.run import current_run
+from core.callbacks.trace import trace
 from core.flow.flow import Flow
 from core.llm.generation_args import GenerationArgs
 from core.messages.chat_message import ChatMessage, ChatMessageChunk, chunk_to_message
@@ -21,16 +23,23 @@ class LLM(Flow[LLMInput, ChatMessage]):
     tools: List[Tool] | None = None
     tool_choice: ToolChoiceType | None = None
 
+    @trace
     def invoke(self, inp: LLMInput, **kwargs: Any) -> ChatMessage:
         messages = to_chat_messages(inp)
-        return self.chat(messages, **kwargs).messages[0]
+        chat_result = self.chat(messages, **kwargs)
+        current_run().update_extra_data(token_usage=chat_result.usage)
+        return chat_result.messages[0]
 
+    @trace
     def stream(self, inp: LLMInput, **kwargs: Any) -> Iterator[ChatMessageChunk]:  # type: ignore[override]
         messages = to_chat_messages(inp)
         result = self.stream_chat(messages, **kwargs)
         assert result.message_stream
-        for message_chunk, _ in result.message_stream:
+        token_usage = None
+        for message_chunk, usage in result.message_stream:
             yield message_chunk
+            token_usage = usage
+        current_run().update_extra_data(token_usage=token_usage)
 
     @abstractmethod
     def chat(self, messages: List[ChatMessage] | str, **kwargs: Any) -> ChatResult:
@@ -68,10 +77,11 @@ class TokenUsage(BaseModel):
 
 class ChatResult(BaseModel):
     messages: List[ChatMessage] = Field(default_factory=list)
+    usage: TokenUsage | None = None
+
     message_stream: Iterator[Tuple[ChatMessageChunk, TokenUsage | None]] | None = Field(
         default=None, description="only return stream of index 0"
     )
-    usage: TokenUsage | None = None
 
     def merge_chunk(self) -> ChatResult:
         if not self.message_stream:

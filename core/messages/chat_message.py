@@ -82,7 +82,7 @@ class ChatMessageChunk(BaseModel):
     def __add__(self, other: ChatMessageChunk) -> ChatMessageChunk:
         content: str | None = None
         if self.content is not None or other.content is not None:
-            content = self.content or "" + (other.content or "")
+            content = (self.content or "") + (other.content or "")
         tool_calls = list(self.tool_calls or [])
         for other_tool_call in other.tool_calls or []:
             if other_tool_call.index >= len(tool_calls):

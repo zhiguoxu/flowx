@@ -56,7 +56,7 @@ def flow_context(func: Callable[..., Output | Iterator[Output]]) -> Union[Callab
         with new_context(self) as context:
             if context is None:
                 # prevent re-enter the same context
-                assert local_config is None, "local_config only pass first call"
+                assert local_config is None, "local_config only pass on the first call"
                 return run(False)
             return context.run(run)
 
