@@ -81,11 +81,12 @@ class FlowBase(Generic[Input, Output], ABC):
 
     @abstractmethod
     def configurable_fields(self, **kwargs: str | ConfigurableField) -> FlowBase[Input, Output]:
-        ...
+        """Configure particular flow fields at runtime."""
 
     @abstractmethod
     def with_configurable(self, **kwargs: Any) -> FlowBase[Input, Output]:
-        ...
+        """Set the configurable arguments specified by configurable_fields.
+        It is another way of pass arguments to invoke."""
 
     @abstractmethod
     def with_retry(self, *,
@@ -96,7 +97,11 @@ class FlowBase(Generic[Input, Output], ABC):
 
     @abstractmethod
     def pick(self, keys: List[str]) -> FlowBase[Input, Dict[str, Any]]:
-        ...
+        """Pick keys from the dict output of this flow."""
+
+    @abstractmethod
+    def assign(self, **kwargs: FlowLike[Input, Any]) -> FlowBase[Input, Dict[str, Any]]:
+        """Assigns new fields to the dict output of this flow."""
 
 
 class Flow(BaseModel, FlowBase[Input, Output], ABC):
@@ -179,6 +184,9 @@ class Flow(BaseModel, FlowBase[Input, Output], ABC):
     def pick(self, keys: str | List[str]) -> SequenceFlow[Input, Dict[str, Any]]:
         keys = [keys] if isinstance(keys, str) else keys
         return self | PickFlow(keys=keys)
+
+    def assign(self, **kwargs: FlowLike[Input, Any]) -> FlowBase[Input, Dict[str, Any]]:
+        return self | ParallelFlow(steps=kwargs, steps_without_key=[identity])
 
 
 class FunctionFlow(Flow[Input, Output]):
@@ -494,6 +502,17 @@ class PickFlow(Flow[Dict[str, Any], Dict[str, Any]]):
     def invoke(self, inp: Input) -> Dict[str, Any]:
         assert isinstance(inp, dict), "The input of PickFlow must be a dict."
         return {k: inp.get(k) for k in self.keys if k in inp}
+
+
+class IdentityFlow(Flow[Other, Other]):
+    def invoke(self, inp: Other) -> Other:
+        return inp
+
+    def transform(self, inp: Iterator[Other]) -> Iterator[Other]:
+        yield from inp
+
+
+identity = IdentityFlow[Any]()
 
 
 FlowLike_ = Union[
