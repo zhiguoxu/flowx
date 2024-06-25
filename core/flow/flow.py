@@ -94,6 +94,10 @@ class FlowBase(Generic[Input, Output], ABC):
                    max_attempt: int = 3) -> FlowBase[Input, Output]:
         ...
 
+    @abstractmethod
+    def pick(self, keys: List[str]) -> FlowBase[Input, Dict[str, Any]]:
+        ...
+
 
 class Flow(BaseModel, FlowBase[Input, Output], ABC):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -171,6 +175,10 @@ class Flow(BaseModel, FlowBase[Input, Output], ABC):
                    ) -> RetryFlow[Input, Output]:
         kwargs = filter_kwargs_by_init_or_pydantic(RetryFlow, locals())
         return RetryFlow(bound=self, **kwargs)
+
+    def pick(self, keys: str | List[str]) -> SequenceFlow[Input, Dict[str, Any]]:
+        keys = [keys] if isinstance(keys, str) else keys
+        return self | PickFlow(keys=keys)
 
 
 class FunctionFlow(Flow[Input, Output]):
@@ -274,7 +282,7 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
             return {key: future.result() for key, future in zip(self.steps.keys(), futures)}
 
     @trace
-    def transform(self, inp: Iterator[Input]) -> Iterator[Dict[str, Any]]:
+    def transform(self, inp: Iterator[Input]) -> Iterator[AddableDict[str, Any]]:
         from core.context import get_executor
         input_copies = list(safe_tee(inp, len(self.steps)))
         with get_executor() as executor:
@@ -465,6 +473,14 @@ class RetryFlow(BindingFlowBase[Input, Output]):
     def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
         logger.warning("RetryFlow doesn't work in transform.")
         yield from self.bound.transform(inp, var_local_config.get(), **kwargs)
+
+
+class PickFlow(Flow[Dict[str, Any], Dict[str, Any]]):
+    keys: List[str]
+
+    def invoke(self, inp: Input) -> Dict[str, Any]:
+        assert isinstance(inp, dict), "The input of PickFlow must be a dict."
+        return {k: inp.get(k) for k in self.keys if k in inp}
 
 
 FlowLike_ = Union[

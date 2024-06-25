@@ -4,7 +4,6 @@ from openai import OpenAI
 from openai.types import ChatModel
 from pydantic import Field
 
-from core.callbacks.trace import trace
 from core.llm.generation_args import GenerationArgs
 from core.llm.llm import LLM, ChatResult, to_chat_messages, ToolChoiceLiteral, ToolChoiceType
 from core.llm.openai.utils import chat_result_from_openai, to_openai_message, tool_to_openai, \
