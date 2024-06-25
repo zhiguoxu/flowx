@@ -140,13 +140,13 @@ class Flow(BaseModel, FlowBase[Input, Output], ABC):
     def _default_transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
         yield from self.stream(merge_iterator(inp), **kwargs)
 
-    def __or__(self, other: FlowLike[Output, Other]) -> SequenceFlow[Input, Other]:
+    def __or__(self, other: FlowLike[Any, Other]) -> SequenceFlow[Input, Other]:
         return SequenceFlow(self, other)
 
-    def __ror__(self, other: FlowLike[Other, Input]) -> SequenceFlow[Other, Output]:
+    def __ror__(self, other: FlowLike[Other, Any]) -> SequenceFlow[Other, Output]:
         return to_flow(other).__or__(self)  # type: ignore[return-value]
 
-    def pipe(self, *others: FlowLike[Output, Other], name: str | None = None) -> SequenceFlow[Input, Other]:
+    def pipe(self, *others: FlowLike[Any, Other], name: str | None = None) -> SequenceFlow[Input, Other]:
         return SequenceFlow(self, *others, name=name)
 
     def bind(self, **kwargs: Any) -> BindingFlow[Input, Output]:
@@ -249,7 +249,7 @@ class SequenceFlow(Flow[Input, Output]):
             inp = step.transform(inp)
         yield from cast(Iterator[Output], inp)
 
-    def __or__(self, other: FlowLike[Output, Other]) -> SequenceFlow[Input, Other]:
+    def __or__(self, other: FlowLike[Any, Other]) -> SequenceFlow[Input, Other]:
         if isinstance(other, SequenceFlow):
             return SequenceFlow(*self.steps, *other.steps, name=self.name or other.name)
         else:
@@ -258,6 +258,7 @@ class SequenceFlow(Flow[Input, Output]):
 
 class ParallelFlow(Flow[Input, Dict[str, Any]]):
     steps: Mapping[str, FlowBase[Input, Any]]
+    steps_without_key: List[FlowBase[Input, Dict[str, Any]]]
 
     # Pydantic will create ValidationError when we initialize ParallelFlow using FunctionFlow as init params!
     # because FunctionFlow[Input, int] is not subclass of Flow[Input, Any] (Flow is subclass if BaseModel),
@@ -265,32 +266,41 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
 
     def __init__(self,
                  steps: Mapping[str, FlowLike[Input, Any]] | None = None,
+                 steps_without_key: List[FlowLike[Input, Dict[str, Any]]] | None = None,
                  name: str | None = None,
                  **kwargs: FlowLike[Input, Any]):
         merged_steps = {**(steps or {}), **kwargs}
         steps = {k: to_flow(v) for k, v in merged_steps.items()}
-        super(Flow, self).__init__(steps=steps, name=name)
+        steps_without_key = [to_flow(step) for step in steps_without_key or []]
+        super(Flow, self).__init__(steps=steps, steps_without_key=steps_without_key, name=name)
 
     @trace
     def invoke(self, inp: Input) -> Dict[str, Any]:
         from core.context import get_executor
         with get_executor() as executor:
-            futures = [
-                executor.submit(step.invoke, inp)
-                for key, step in self.steps.items()
-            ]
-            return {key: future.result() for key, future in zip(self.steps.keys(), futures)}
+            futures = [executor.submit(step.invoke, inp) for key, step in self.steps.items()]
+            futures_without_key = [executor.submit(step.invoke, inp) for step in self.steps_without_key]
+            result = {
+                key: future.result()
+                for key, future in zip(self.steps.keys(), futures)
+            }
+            for future in futures_without_key:
+                result.update(**future.result())
+            return result
 
     @trace
-    def transform(self, inp: Iterator[Input]) -> Iterator[AddableDict[str, Any]]:
+    def transform(self, inp: Iterator[Input]) -> Iterator[AddableDict]:
         from core.context import get_executor
-        input_copies = list(safe_tee(inp, len(self.steps)))
+        input_copies = list(safe_tee(inp, len(self.steps) + len(self.steps_without_key)))
         with get_executor() as executor:
             # Create the transform() generator for each step
             named_generators = [
-                (name, step.transform(input_copies.pop()))
-                for name, step in self.steps.items()
-            ]
+                                   (name, step.transform(input_copies.pop()))
+                                   for name, step in self.steps.items()
+                               ] + [
+                                   ("", step.transform(input_copies.pop()))
+                                   for step in self.steps_without_key
+                               ]
             # Start the first iteration of each generator
             futures = {
                 executor.submit(next, generator): (step_name, generator)
@@ -303,7 +313,10 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
                 for future in completed_futures:
                     step_name, generator = futures.pop(future)
                     try:
-                        yield AddableDict({step_name: future.result()})
+                        if step_name:
+                            yield AddableDict({step_name: future.result()})
+                        else:
+                            yield AddableDict({**future.result()})
                         futures[executor.submit(next, generator)] = (step_name, generator)
                     except StopIteration:
                         pass
