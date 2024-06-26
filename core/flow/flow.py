@@ -100,6 +100,10 @@ class FlowBase(Generic[Input, Output], ABC):
         """Pick keys from the dict output of this flow."""
 
     @abstractmethod
+    def drop(self, keys: List[str]) -> FlowBase[Input, Dict[str, Any]]:
+        """Drop keys of the dict output of this flow."""
+
+    @abstractmethod
     def assign(self, **kwargs: FlowLike[Input, Any]) -> FlowBase[Input, Dict[str, Any]]:
         """Assigns new fields to the dict output of this flow."""
 
@@ -185,8 +189,12 @@ class Flow(BaseModel, FlowBase[Input, Output], ABC):
         keys = [keys] if isinstance(keys, str) else keys
         return self | PickFlow(keys=keys)
 
+    def drop(self, keys: str | List[str]) -> SequenceFlow[Input, Dict[str, Any]]:
+        keys = [keys] if isinstance(keys, str) else keys
+        return self | PickFlow(drop_keys=keys)
+
     def assign(self, **kwargs: FlowLike[Input, Any]) -> SequenceFlow[Input, Dict[str, Any]]:
-        return self | ParallelFlow(steps=kwargs, steps_without_key=[identity])
+        return self | ParallelFlow(steps=kwargs, steps_without_key=[identity.drop(list(kwargs.keys()))])
 
 
 class FunctionFlow(Flow[Input, Output]):
@@ -287,11 +295,11 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
         from core.context import get_executor
         with get_executor() as executor:
             futures = [executor.submit(step.invoke, inp) for key, step in self.steps.items()]
-            futures_without_key = [executor.submit(step.invoke, inp) for step in self.steps_without_key]
             result = {
                 key: future.result()
                 for key, future in zip(self.steps.keys(), futures)
             }
+            futures_without_key = [executor.submit(step.invoke, inp) for step in self.steps_without_key]
             for future in futures_without_key:
                 result.update(**future.result())
             return result
@@ -324,7 +332,9 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
                         if step_name:
                             yield AddableDict({step_name: future.result()})
                         else:
-                            yield AddableDict({**future.result()})
+                            result = future.result()
+                            if result:
+                                yield AddableDict({**result})
                         futures[executor.submit(next, generator)] = (step_name, generator)
                     except StopIteration:
                         pass
@@ -497,11 +507,22 @@ class RetryFlow(BindingFlowBase[Input, Output]):
 
 
 class PickFlow(Flow[Dict[str, Any], Dict[str, Any]]):
-    keys: List[str]
+    keys: List[str] = Field(default_factory=list)
+    drop_keys: List[str] = Field(default_factory=list)
 
-    def invoke(self, inp: Input) -> Dict[str, Any]:
+    def invoke(self, inp: Dict[str, Any]) -> Dict[str, Any]:
         assert isinstance(inp, dict), "The input of PickFlow must be a dict."
-        return {k: inp.get(k) for k in self.keys if k in inp}
+        return self._pick(inp)
+
+    def transform(self, inp: Iterator[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
+        for item in inp:
+            yield AddableDict(self._pick(item))
+
+    def _pick(self, inp: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            k: v
+            for k, v in inp.items() if (not self.keys or k in self.keys) and k not in self.drop_keys
+        }
 
 
 class IdentityFlow(Flow[Other, Other]):
@@ -513,7 +534,6 @@ class IdentityFlow(Flow[Other, Other]):
 
 
 identity = IdentityFlow[Any]()
-
 
 FlowLike_ = Union[
     FlowBase[Input, Output],
