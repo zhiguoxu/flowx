@@ -5,7 +5,7 @@ from core.callbacks.console_callback import ConsoleCallback
 from core.callbacks.run import Run
 from core.callbacks.run_stack import current_flow, push_run_stack, current_run, pop_run_stack, is_run_stack_empty, \
     current_config
-from core.flow.flow_config import get_cur_config
+from core.flow.config import get_cur_config
 from core.logging import get_logger
 
 if TYPE_CHECKING:

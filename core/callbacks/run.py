@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 from pydantic import BaseModel, Field
 
-from core.flow.flow_config import FlowConfig
+from core.flow.config import FlowConfig
 
 from typing import TYPE_CHECKING
 

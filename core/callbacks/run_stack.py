@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from core.callbacks.run import Run
 from core.callbacks.trace import ENABLE_TRACE
 from core.errors import RunStackError
-from core.flow.flow_config import FlowConfig
+from core.flow.config import FlowConfig
 from core.flow.flow import Flow
 
 

@@ -4,7 +4,7 @@ from typing import Any, Union, Callable, TypeVar, ParamSpec, Generator, Iterable
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import contextmanager
 
-from core.flow.flow_config import var_flow_config, FlowConfig, var_local_config
+from core.flow.config import var_flow_config, FlowConfig, var_local_config
 from core.flow.flow import Flow
 from core.utils.utils import is_generator
 

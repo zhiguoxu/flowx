@@ -15,7 +15,7 @@ from core.callbacks.listeners_callback import ListenersCallback
 from core.callbacks.run import Run
 from core.callbacks.trace import trace
 from core.flow.addable_dict import AddableDict
-from core.flow.flow_config import FlowConfig, get_cur_config, var_local_config
+from core.flow.config import FlowConfig, get_cur_config, var_local_config
 from core.flow.utils import recurse_flow, ConfigurableField
 from core.logging import get_logger
 from core.utils.iter import safe_tee, merge_iterator

@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from core.flow.flow_config import var_flow_config
+from core.flow.config import var_flow_config
 from core.utils.utils import NOT_GIVEN
 
 
