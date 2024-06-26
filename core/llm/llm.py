@@ -5,7 +5,7 @@ from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any
 
 from pydantic import Field, BaseModel
 
-from core.callbacks.run import current_run
+from core.callbacks.run_stack import current_run
 from core.callbacks.trace import trace
 from core.flow.flow import Flow
 from core.llm.generation_args import GenerationArgs

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from itertools import tee
-from typing import TypeVar, Callable, Iterator, Any
+from typing import TypeVar, Callable, Iterator, Any, TYPE_CHECKING
 
 from core.errors import RunStackError
 from core.utils.iter import merge_iterator
 from core.utils.utils import is_generator, env_is_set
+
+if TYPE_CHECKING:
+    from core.flow.flow import Flow
 
 Output = TypeVar("Output", covariant=True)
 
@@ -20,9 +23,9 @@ def trace(func: Callable[..., Output]) -> Callable[..., Output]:
     if not ENABLE_TRACE:
         return func
 
-    def wrapper(flow: Any, inp: Any, **kwargs: Any) -> Output:
+    def wrapper(flow: "Flow", inp: Any, **kwargs: Any) -> Output:
         from core.callbacks.callback_manager import callback_manager
-        from core.callbacks.run import check_cur_flow
+        from core.callbacks.run_stack import check_cur_flow
 
         if not callback_manager.on_flow_start(flow, inp, **kwargs):
             return func(flow, inp, **kwargs)  # type: ignore[return-value] # no trace
@@ -43,7 +46,7 @@ def trace(func: Callable[..., Output]) -> Callable[..., Output]:
 
     def stream_wrapper(flow: Any, inp: Any, **kwargs: Any) -> Output:  # type: ignore[misc]
         from core.callbacks.callback_manager import callback_manager
-        from core.callbacks.run import check_cur_flow
+        from core.callbacks.run_stack import check_cur_flow
 
         if isinstance(inp, Iterator):
             inp, input_for_trace = tee(inp, 2)

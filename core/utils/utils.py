@@ -75,19 +75,22 @@ def to_pydantic_obj(model_type: Type, obj: Any) -> Any:
         class_type = obj.get("class_type", model_type)
         fields_type_hints = get_type_hints(class_type)
 
+        # 1. prepare all kwargs
         kwargs = {}
         for key, value in obj.items():
             if sub_type := fields_type_hints.get(key):
                 value = to_pydantic_obj(sub_type, value)
             kwargs[key] = value
 
+        # 2. prepare init kwargs
         init_kwargs = filter_kwargs_by_method(class_type.__init__, kwargs)
         if not init_kwargs:
             return class_type(**kwargs)
 
-        # 1. init by __init__;
+        # 3. init by __init__;
         pydantic_obj = class_type(**init_kwargs)
-        # 2. set the rest fields.
+
+        # 4. set the rest fields.
         kwargs = {k: v for k, v in kwargs.items() if k not in init_kwargs}
         copy_if_unset(kwargs, pydantic_obj)
         return pydantic_obj
@@ -96,35 +99,37 @@ def to_pydantic_obj(model_type: Type, obj: Any) -> Any:
 
 
 def copy_if_unset(src: Dict, dst: Model | Dict, deep: bool = True) -> None:
+    def deep_copy(sub_src: Any, sub_dst: Any) -> None:
+        if isinstance(sub_src, BaseModel):
+            sub_src = pydantic_to_dict(sub_src, exclude_unset=True)
+        if isinstance(sub_dst, BaseModel):
+            assert isinstance(sub_src, dict)
+            copy_if_unset(sub_src, sub_dst)
+        elif isinstance(sub_dst, dict):
+            assert isinstance(value, dict)
+            copy_if_unset(sub_src, sub_dst)
+
     if isinstance(dst, dict):
-        assert isinstance(src, dict)
         for key, value in src.items():
             if key not in dst or dst[key] is NotGiven:
                 dst[key] = value
             elif deep:
-                if isinstance(value, BaseModel):
-                    value = value.model_dump()
-                dst_value = dst[key]
-                if isinstance(dst_value, BaseModel):
-                    assert isinstance(value, dict)
-                    copy_if_unset(value, dst_value)
-                elif isinstance(dst_value, dict):
-                    assert isinstance(value, dict)
-                    copy_if_unset(value, dst_value)
-    else:
+                deep_copy(value, dst[key])
+    else:  # dst is pydantic Model
         for key, value in src.items():
             if key not in dst.__pydantic_fields_set__:
                 setattr(dst, key, value)
             elif deep:
-                if isinstance(value, BaseModel):
-                    value = value.model_dump()
-                dst_value = getattr(dst, key)
-                if isinstance(dst_value, BaseModel):
-                    assert isinstance(value, dict)
-                    copy_if_unset(value, dst_value)
-                elif isinstance(dst_value, dict):
-                    assert isinstance(value, dict)
-                    copy_if_unset(value, dst_value)
+                deep_copy(value, getattr(dst, key))
+
+
+def pydantic_to_dict(model: Model, exclude_unset: bool = False, exclude_none: bool = False):
+    ret = dict(model)
+    if exclude_unset:
+        ret = {k: v for k, v in ret.items() if k in model.__pydantic_fields_set__}
+    if exclude_none:
+        ret = {k: v for k, v in ret.items() if v is not None}
+    return ret
 
 
 def is_generator(func: Any) -> TypeGuard[Callable[..., Iterator]]:

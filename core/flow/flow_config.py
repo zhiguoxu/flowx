@@ -5,6 +5,9 @@ from typing import Dict, List, Any, Mapping, get_type_hints
 
 from pydantic import BaseModel, Field
 
+from core.callbacks.callback_handler import CallbackHandler
+from core.utils.utils import pydantic_to_dict
+
 
 class FlowConfig(BaseModel):
     recursion_limit: int = 20
@@ -25,14 +28,18 @@ class FlowConfig(BaseModel):
     so it is somehow like global variables work in Flow scope.
     """
 
+    callbacks: List[CallbackHandler] = Field(default_factory=list)
+    """Callbacks for the flow calls(invoke, stream, transform...), normally they are local."""
+
     def merge(self, *others: FlowConfig | Dict) -> FlowConfig:
+
         others_dict = [
-            other.model_dump(exclude_unset=True)
+            pydantic_to_dict(other, exclude_unset=True)
             if isinstance(other, FlowConfig) else other
             for other in others
         ]
 
-        data = self.model_dump(exclude_unset=True)
+        data = pydantic_to_dict(self, exclude_unset=True)
         for other in others_dict:
             for key, value in other.items():
                 field_type = get_type_hints(self.__class__)[key]
@@ -55,6 +62,7 @@ class FlowConfig(BaseModel):
 
     class Config:
         extra = "forbid"
+        arbitrary_types_allowed = True
 
 
 # inheritable config

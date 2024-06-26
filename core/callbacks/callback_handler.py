@@ -1,12 +1,13 @@
 import abc
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from core.flow.flow import Flow
+if TYPE_CHECKING:
+    from core.flow.flow import Flow
 
 
 class CallbackHandler(abc.ABC):
     @abc.abstractmethod
-    def on_flow_start(self, flow: Flow, inp: Any, **kwargs: Any) -> bool:
+    def on_flow_start(self, flow: "Flow", inp: Any, **kwargs: Any) -> bool:
         ...
 
     @abc.abstractmethod

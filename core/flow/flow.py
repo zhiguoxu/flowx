@@ -11,6 +11,8 @@ from pydantic_core import core_schema
 from tenacity import stop_after_attempt, wait_exponential_jitter, retry_if_exception_type, Retrying
 from typing_extensions import Self
 
+from core.callbacks.listeners_callback import ListenersCallback
+from core.callbacks.run import Run
 from core.callbacks.trace import trace
 from core.flow.addable_dict import AddableDict
 from core.flow.flow_config import FlowConfig, get_cur_config, var_local_config
@@ -107,6 +109,13 @@ class FlowBase(Generic[Input, Output], ABC):
     def assign(self, **kwargs: FlowLike[Input, Any]) -> FlowBase[Input, Dict[str, Any]]:
         """Assigns new fields to the dict output of this flow."""
 
+    @abstractmethod
+    def with_listeners(self,
+                       on_start: Callable[[Run], None] | None = None,
+                       on_end: Callable[[Run], None] | None = None,
+                       on_error: Callable[[Run], None] | None = None) -> FlowBase[Input, Output]:
+        """Bind lifecycle listeners to a Flow."""
+
 
 class Flow(BaseModel, FlowBase[Input, Output], ABC):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -195,6 +204,12 @@ class Flow(BaseModel, FlowBase[Input, Output], ABC):
 
     def assign(self, **kwargs: FlowLike[Input, Any]) -> SequenceFlow[Input, Dict[str, Any]]:
         return self | ParallelFlow(steps=kwargs, steps_without_key=[identity.drop(list(kwargs.keys()))])
+
+    def with_listeners(self,
+                       on_start: Callable[[Run], None] | None = None,
+                       on_end: Callable[[Run], None] | None = None,
+                       on_error: Callable[[Run], None] | None = None) -> BindingFlow[Input, Output]:
+        return self.with_config(callbacks=[ListenersCallback(on_start=on_start, on_end=on_end, on_error=on_error)])
 
 
 class FunctionFlow(Flow[Input, Output]):
@@ -451,7 +466,7 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         if self.bound.__class__.__init__ is BaseModel.__init__:
             return self.bound.model_copy(update=update_fields, deep=True)
 
-        return to_pydantic_obj(Flow, {**self.bound.model_dump(), **update_fields})
+        return to_pydantic_obj(Flow, {**self.bound.model_dump(exclude_unset=True), **update_fields})
 
 
 class RetryFlow(BindingFlowBase[Input, Output]):

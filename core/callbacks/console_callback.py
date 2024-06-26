@@ -1,12 +1,14 @@
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from core.callbacks.callback_handler import CallbackHandler
-from core.callbacks.run import current_run_list, current_run
-from core.flow.flow import Flow
+from core.callbacks.run_stack import current_run_list, current_run
+
+if TYPE_CHECKING:
+    from core.flow.flow import Flow
 
 
-class ConsoleHandler(CallbackHandler):
-    def on_flow_start(self, flow: Flow, inp: Any, **kwargs: Any) -> bool:
+class ConsoleCallback(CallbackHandler):
+    def on_flow_start(self, flow: "Flow", inp: Any, **kwargs: Any) -> bool:
         print(f"{get_breadcrumbs()}: on_flow_start: {inp}{f', {kwargs}' if kwargs else ''}")
         return True
 
