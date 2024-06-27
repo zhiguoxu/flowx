@@ -20,7 +20,7 @@ def recurse_flow(flow: Any, inp: Any):
 
 
 class ConfigurableField(BaseModel):
-    name: str
+    id: str
     description: str | None = None
     annotation: Any = None
     default: Any = NOT_GIVEN

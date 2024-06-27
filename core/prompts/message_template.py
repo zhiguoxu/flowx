@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import itertools
 from string import Formatter
 from typing import Dict, Tuple, Any, Union, List
 
 from pydantic import Field
 
 from core.flow.flow import Flow
+from core.logging import get_logger
 from core.messages.chat_message import ChatMessage, Role
+
+logger = get_logger(__name__)
 
 
 class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
@@ -46,6 +50,10 @@ class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
         if arg is not None:
             assert len(kwargs) == 0
             kwargs = validate_template_vars(arg, self.input_vars)
+        for k, v in itertools.chain(kwargs.items(), self.partial_vars.items()):
+            if k in self.input_vars and not isinstance(v, (str, int, float)):
+                logger.warning(f"Format str template with value of complex type with key = '{k}', value = {v}")
+
         return ChatMessage(role=self.role, content=self.template.format(**kwargs, **self.partial_vars))
 
     @property

@@ -172,7 +172,7 @@ class Flow(BaseModel, FlowBase[Input, Output], ABC):
 
     def with_config(self,
                     config: FlowConfig | None = None,
-                    inheritable: bool = True,
+                    inheritable: bool = False,
                     **kwargs: Any) -> BindingFlow[Input, Output]:
         config = (config or FlowConfig()).merge(kwargs)
         if inheritable:
@@ -184,7 +184,7 @@ class Flow(BaseModel, FlowBase[Input, Output], ABC):
         return BindingFlow(self, fields=kwargs)
 
     def with_configurable(self, **kwargs: Any) -> BindingFlow[Input, Output]:
-        return self.with_config(configurable=kwargs)
+        return self.with_config(configurable=kwargs, inheritable=True)
 
     def with_retry(self, *,
                    retry_if_exception_type: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception,
@@ -395,6 +395,16 @@ class GeneratorFlow(Flow[Input, Output]):
 class BindingFlowBase(Flow[Input, Output], ABC):
     bound: FlowBase[Input, Output]
 
+    def invoke(self, inp: Input) -> Output:
+        # Transmit the local_config.
+        return self.bound.invoke(inp, var_local_config.get())
+
+    def stream(self, inp: Input) -> Iterator[Output]:
+        yield from self.bound.stream(inp, var_local_config.get())
+
+    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
+        yield from self.bound.transform(inp, var_local_config.get())
+
 
 class BindingFlow(BindingFlowBase[Input, Output]):
     kwargs: Dict[str, Any] = Field(default_factory=dict)  # local kwargs pass to bound
@@ -410,7 +420,7 @@ class BindingFlow(BindingFlowBase[Input, Output]):
                  fields: Mapping[str, str | ConfigurableField] | None = None):
         fields = fields or {}
         fields = {
-            k: v if isinstance(v, ConfigurableField) else ConfigurableField(name=v)
+            k: v if isinstance(v, ConfigurableField) else ConfigurableField(id=v)
             for k, v in fields.items()
         }
 
@@ -433,14 +443,15 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         super().__init__(**init_kwargs)
 
     def invoke(self, inp: Input) -> Output:
-        return self.get_bound().invoke(inp, self.local_config, **self.kwargs)
+
+        return self._get_bound().invoke(inp, self._get_local_config(), **self.kwargs)
         # Not every invoke accept **kwargs, so if you bind kwargs, it must be accepted by inner flow.
 
     def stream(self, inp: Input) -> Iterator[Output]:
-        yield from self.get_bound().stream(inp, self.local_config, **self.kwargs)
+        yield from self._get_bound().stream(inp, self._get_local_config(), **self.kwargs)
 
     def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
-        yield from self.get_bound().transform(inp, self.local_config, **self.kwargs)
+        yield from self._get_bound().transform(inp, self._get_local_config(), **self.kwargs)
 
     def with_retry(self, **kwargs: Any) -> BindingFlow[Input, Output]:  # type: ignore[override]
         return BindingFlow(
@@ -450,11 +461,18 @@ class BindingFlow(BindingFlowBase[Input, Output]):
             local_config=self.local_config
         )
 
-    def get_bound(self) -> FlowBase[Input, Output]:
+    def _get_local_config(self) -> FlowConfig | None:
+        local_config = var_local_config.get()
+        if local_config and self.local_config:
+            return local_config.merge(self.local_config)
+
+        return local_config or self.local_config
+
+    def _get_bound(self) -> FlowBase[Input, Output]:
         configurable = get_cur_config().configurable
         update_fields = {}
         for k, field in self.fields.items():
-            value = configurable.get(field.name, field.default)
+            value = configurable.get(field.id, field.default)
             if value is not NOT_GIVEN:
                 update_fields[k] = value
 

@@ -116,4 +116,3 @@ class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
 
 
 MessageTemplateLike = ChatMessage | MessageTemplate | MessageListTemplate | MessagesPlaceholder
-MessageListTemplate.update_forward_refs()

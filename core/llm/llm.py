@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any
+from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any, Callable, TYPE_CHECKING
 
 from pydantic import Field, BaseModel
 
+from core.callbacks.chat_history import BaseChatMessageHistory
 from core.callbacks.run_stack import current_run
-from core.callbacks.trace import trace
+from core.callbacks.trace import trace, ENABLE_TRACE
 from core.flow.flow import Flow
+from core.flow.utils import ConfigurableField
 from core.llm.generation_args import GenerationArgs
 from core.messages.chat_message import ChatMessage, ChatMessageChunk, chunk_to_message
 from core.messages.utils import to_chat_message, MessageLike
+from core.prompts.message_list_template import MessageListTemplate, MessagesPlaceholder
 from core.tool import Tool
+from core.utils.utils import filter_kwargs_by_init_or_pydantic
+
+if TYPE_CHECKING:
+    from core.llm.llm_with_history import LLMWithHistory
 
 LLMInput = Union[str, Sequence[MessageLike]]
 ToolChoiceLiteral = Literal["none", "auto", "required", "any"]
@@ -27,7 +34,8 @@ class LLM(Flow[LLMInput, ChatMessage]):
     def invoke(self, inp: LLMInput, **kwargs: Any) -> ChatMessage:
         messages = to_chat_messages(inp)
         chat_result = self.chat(messages, **kwargs)
-        current_run().update_extra_data(token_usage=chat_result.usage)
+        if ENABLE_TRACE:
+            current_run().update_extra_data(token_usage=chat_result.usage)
         return chat_result.messages[0]
 
     @trace
@@ -55,6 +63,19 @@ class LLM(Flow[LLMInput, ChatMessage]):
             self.tool_choice = None
         else:
             self.tool_choice = tool_choice
+
+    def with_history(self,
+                     get_session_history: Callable[..., BaseChatMessageHistory],
+                     history_factory_config: Sequence[ConfigurableField] | None = None
+                     ) -> "LLMWithHistory[ChatMessage]":
+        from core.llm.llm_with_history import LLMWithHistory
+        prompt = MessageListTemplate.from_messages([
+            MessagesPlaceholder(var_name="input")
+        ])
+
+        bound = prompt | self
+        kwargs = filter_kwargs_by_init_or_pydantic(LLMWithHistory, locals(), exclude_none=True)
+        return LLMWithHistory(**kwargs)
 
 
 def to_chat_messages(inp: LLMInput) -> List[ChatMessage]:
