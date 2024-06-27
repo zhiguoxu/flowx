@@ -15,32 +15,27 @@ from core.messages.chat_message import ChatMessage
 from core.messages.utils import to_chat_message, MessageLike
 
 Input = Union[MessageLike, Dict[str, Any]]
-# Output = Union[ChatMessage, Dict[str, Any]]
-Output = TypeVar("Output", covariant=True)
+Output = TypeVar("Output", covariant=True, bound=Union[ChatMessage, Dict[str, Any]])
 
 
 class LLMWithHistory(BindingFlowBase[Input, Output]):
-    """
-    Flow that manages chat message history for another Flow.
-    This flow's input type is Dict[str, Any] | LLMInput, the inner bound input type is LLMInput.
-    If input_messages_key or history_messages_key is given, the input must be a dict.
-    If output_messages_key is give, the inner bound's output must be a dict.
-    """
+    """Flow that manages chat message history for another Flow."""
 
     bound: FlowBase[Input, Output]
-    """The flow constructed like 'flow = MessageListTemplate | LLM'"""
+    """The flow is constructed like 'MessageListTemplate | LLM'"""
 
     get_session_history: Callable[..., BaseChatMessageHistory]
-
-    input_messages_key: str | None = None
-    """If input is a dict, input messages = input[input_messages_key]."""
-
-    output_messages_key: str | None = None
-    """Normally the output of bound is ChatMessage,
-     bug if output is a dict, output message = output[input_messages_key]."""
+    """The method to get chat history by session."""
 
     history_messages_key: str | None = None
     """The key for history message replacement key in chat prompt."""
+
+    input_messages_key: str | None = None
+    """The key for input message replacement key in chat prompt."""
+
+    output_messages_key: str | None = None
+    """Normally the output of bound is ChatMessage,
+     bug if output is a dict, output_message = output[output_messages_key]."""
 
     history_factory_config: Sequence[ConfigurableField] = (ConfigurableField(id="session_id", annotation=str),)
     """ConfigurableField define the arguments of get_session_history."""
