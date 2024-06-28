@@ -4,13 +4,11 @@ from openai import OpenAI
 from openai.types import ChatModel
 from pydantic import Field
 
-from core.llm.generation_args import GenerationArgs
-from core.llm.llm import LLM, ChatResult, to_chat_messages, ToolChoiceLiteral, ToolChoiceType
+from core.llm.llm import LLM, ChatResult, to_chat_messages, ToolChoiceLiteral
 from core.llm.openai.utils import chat_result_from_openai, to_openai_message, tool_to_openai, \
     get_tool_choice_by_pydantic
 from core.messages.chat_message import ChatMessage, Role
-from core.tool import Tool
-from core.utils.utils import filter_kwargs_by_method, filter_kwargs_by_pydantic
+from core.utils.utils import filter_kwargs_by_method
 
 
 class OpenAILLM(LLM):
@@ -22,29 +20,9 @@ class OpenAILLM(LLM):
     system_prompt: str | None = None
     stream_include_usage: bool = Field(
         default=False,
-        description="Refer to ChatCompletionChunk.usage and ChatCompletionStreamOptionsParam"
+        description="If set, the token usage will return at the end of stream."
+                    "Refer to ChatCompletionChunk.usage and ChatCompletionStreamOptionsParam for more info"
     )
-
-    def __init__(self,
-                 model: str | ChatModel = "gpt-3.5-turbo",
-                 temperature: float = 0.1,
-                 max_new_tokens: int = 512,
-                 stream: bool = False,
-                 repetition_penalty: float = 1,
-                 stop: str | List[str] | None = None,
-                 system_prompt: str | None = None,
-                 api_key: str | None = None,
-                 base_url: str | None = None,
-                 max_retries: int = 2,
-                 timeout: float = 20,
-                 stream_include_usage: bool = False,
-                 tools: List[Tool] | None = None,
-                 tool_choice: ToolChoiceType | None = None):
-
-        generation_kwargs = filter_kwargs_by_pydantic(GenerationArgs, locals(), exclude_none=True)
-        generation_args = GenerationArgs(**generation_kwargs)
-        kwargs = filter_kwargs_by_pydantic(self, locals(), exclude_none=True)
-        super().__init__(**kwargs)
 
     def chat(self, messages: List[ChatMessage] | str, **kwargs: Any) -> ChatResult:
         return self._chat_(messages, **kwargs).merge_chunk()
@@ -69,12 +47,19 @@ class OpenAILLM(LLM):
 
     @property
     def chat_kwargs(self) -> Dict[str, Any]:
-        kwargs = self.generation_args.model_dump(exclude_none=True)
+        effect_generation_args = {
+            "max_new_tokens", "temperature", "streaming", "repetition_penalty", "stop", "n"
+        }
+        kwargs = self.model_dump(exclude_none=True, include=effect_generation_args)
         kwargs.update(self.model_dump(exclude_none=True))
 
         if "max_new_tokens" in kwargs:
             kwargs["max_tokens"] = kwargs.pop("max_new_tokens")
+        kwargs["stream"] = kwargs.pop("streaming")
 
+        # Openai doesn't support repetition_penalty,
+        # but we can extend it to other models that support it
+        # with openai interface compatible server by using 'extra_body'.
         repetition_penalty = kwargs.pop("repetition_penalty")
         if not self.model.startswith("gpt"):
             kwargs["extra_body"] = dict(repetition_penalty=repetition_penalty)

@@ -10,7 +10,6 @@ from core.callbacks.run_stack import current_run
 from core.callbacks.trace import trace, ENABLE_TRACE
 from core.flow.flow import Flow
 from core.flow.utils import ConfigurableField
-from core.llm.generation_args import GenerationArgs
 from core.messages.chat_message import ChatMessage, ChatMessageChunk, chunk_to_message
 from core.messages.utils import to_chat_message, MessageLike
 from core.prompts.message_list_template import MessageListTemplate, MessagesPlaceholder
@@ -26,7 +25,25 @@ ToolChoiceType = str | ToolChoiceLiteral
 
 
 class LLM(Flow[LLMInput, ChatMessage]):
-    generation_args: GenerationArgs = Field(default_factory=GenerationArgs)
+    max_new_tokens: int = Field(
+        default=512,
+        description="Number of tokens the model can output when generating a response.",
+    )
+
+    temperature: float = Field(
+        default=0.1,
+        description="The temperature to use during generation.",
+        ge=0.0,
+    )
+
+    streaming: bool = Field(default=False, description="Streaming output.")
+
+    repetition_penalty: float = 1
+
+    stop: str | List[str] | None = None
+
+    n: int = Field(default=1, description="How many chat completion choices to generate for each input message.")
+
     tools: List[Tool] | None = None
     tool_choice: ToolChoiceType | None = None
 
@@ -76,6 +93,9 @@ class LLM(Flow[LLMInput, ChatMessage]):
         bound = prompt | self
         kwargs = filter_kwargs_by_init_or_pydantic(LLMWithHistory, locals(), exclude_none=True)
         return LLMWithHistory(**kwargs)
+
+    class Config:
+        extra = "forbid"
 
 
 def to_chat_messages(inp: LLMInput) -> List[ChatMessage]:
