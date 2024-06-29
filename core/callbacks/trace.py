@@ -3,7 +3,7 @@ from __future__ import annotations
 from itertools import tee
 from typing import TypeVar, Callable, Iterator, Any, TYPE_CHECKING
 
-from core.errors import RunStackError
+from core.exceptions import RunStackException
 from core.utils.iter import merge_iterator
 from core.utils.utils import is_generator, env_is_set
 
@@ -38,7 +38,7 @@ def trace(func: Callable[..., Output]) -> Callable[..., Output]:
             assert not isinstance(output, Iterator)
             return output
         except BaseException as e:
-            if isinstance(e, RunStackError):
+            if isinstance(e, RunStackException):
                 raise
             check_cur_flow(flow)
             callback_manager.on_flow_error(e)
@@ -66,7 +66,7 @@ def trace(func: Callable[..., Output]) -> Callable[..., Output]:
                 yield from output
                 callback_manager.on_flow_end(merge_iterator(output_for_trace))
             except BaseException as e:
-                if isinstance(e, RunStackError):
+                if isinstance(e, RunStackException):
                     raise
                 check_cur_flow(flow)
                 callback_manager.on_flow_error(e)

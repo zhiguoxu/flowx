@@ -58,7 +58,7 @@ class ToolCallChunk(BaseModel):
     index: int
     id: str | None = None
     function: FunctionChunk | None = None
-    type: Literal["function"] | None = None
+    type: Literal["function"] | str | None = None
 
     def __add__(self, other: ToolCallChunk) -> ToolCallChunk:
         assert self.index == other.index
@@ -96,9 +96,8 @@ class ChatMessageChunk(BaseModel):
                                 tool_call_id=self.tool_call_id or other.tool_call_id,
                                 finish_reason=self.finish_reason or other.finish_reason)
 
-
-def chunk_to_message(message_chunk: ChatMessageChunk) -> ChatMessage:
-    message_dump = message_chunk.model_dump()
-    for tool_call in message_dump.get("tool_calls") or []:
-        tool_call.pop("index")
-    return ChatMessage(**message_dump)
+    def to_message(self) -> ChatMessage:
+        message_dump = self.model_dump()
+        for tool_call in message_dump.get("tool_calls") or []:
+            tool_call.pop("index")
+        return ChatMessage(**message_dump)

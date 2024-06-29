@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from core.callbacks.run import Run
 from core.callbacks.trace import ENABLE_TRACE
-from core.errors import RunStackError
+from core.exceptions import RunStackException
 from core.flow.config import FlowConfig
 from core.flow.flow import Flow
 
@@ -22,12 +22,12 @@ class RunStack(BaseModel):
     def pop(self) -> Run:
         if not self.is_empty():
             return self.stack.pop()
-        raise RunStackError("pop from empty stack")
+        raise RunStackException("pop from empty stack")
 
     def peek(self) -> Run:
         if not self.is_empty():
             return self.stack[-1]
-        raise RunStackError("peek from empty stack")
+        raise RunStackException("peek from empty stack")
 
     def size(self) -> int:
         return len(self.stack)
@@ -79,4 +79,4 @@ def is_run_stack_empty():
 
 def check_cur_flow(flow: Any):
     if current_flow() != flow:
-        raise RunStackError(f"Run stack error, flow run in error stack:【{flow}】in【{current_flow()}】")
+        raise RunStackException(f"Run stack error, flow run in error stack:【{flow}】in【{current_flow()}】")

@@ -1,4 +1,4 @@
-from typing import Iterator, Tuple, List, Dict, Any, Type
+from typing import Iterator, Tuple, List, Dict, Any, Type, get_args
 
 from openai import Stream
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMessageParam, \
@@ -8,7 +8,7 @@ from openai.types.chat.chat_completion_chunk import Choice as ChoiceChunk, ChatC
 from openai.types.chat.chat_completion import Choice, ChatCompletion
 from pydantic import BaseModel
 
-from core.llm.llm import ChatResult, TokenUsage
+from core.llm.llm import ChatResult, TokenUsage, ToolChoice, ToolChoiceLiteral
 from core.messages.chat_message import ChatMessage, Role, ToolCall, ChatMessageChunk, ToolCallChunk
 from core.tool import Tool
 
@@ -94,3 +94,20 @@ def get_tool_choice_by_pydantic(pydantic_class: Type[BaseModel]) -> str | dict:
 
 def tool_to_openai(tool: Tool) -> Dict[str, Any]:
     return get_tool_by_pydantic(tool.args_schema)
+
+
+def tools_to_openai(tools: List[Tool]) -> List[Dict[str, Any]]:
+    return list(map(tool_to_openai, tools))
+
+
+def tool_choice_to_openai(tool_choice: ToolChoice, tools: List[Tool] | None = None):
+    tool_choice = "required" if tool_choice == "any" else tool_choice
+    if tool_choice in get_args(ToolChoiceLiteral):
+        return tool_choice
+
+    for tool in tools or []:
+        if tool.name == tool_choice:
+            return get_tool_choice_by_pydantic(tool.args_schema)
+
+    tool_names = list(map(lambda tool_: tool_.name, tools or []))
+    raise ValueError(f"""Error tool choice: "{tool_choice}" not in tools: {tool_names}""")

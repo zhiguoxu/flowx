@@ -15,7 +15,7 @@ ToolOutput = TypeVar("ToolOutput")
 class Tool(BaseModel, Generic[ToolOutput]):
     function: Callable[..., ToolOutput]
     args_schema: Type[BaseModel]
-    return_direct: bool = False
+    return_direct: bool = False  # todo
 
     def __init__(self,
                  function: Callable[..., ToolOutput],

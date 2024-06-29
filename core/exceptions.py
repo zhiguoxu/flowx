@@ -1,0 +1,6 @@
+class FlowException(Exception):
+    ...
+
+
+class RunStackException(FlowException):
+    ...

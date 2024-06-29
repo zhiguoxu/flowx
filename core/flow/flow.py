@@ -20,7 +20,7 @@ from core.flow.utils import recurse_flow, ConfigurableField
 from core.logging import get_logger
 from core.utils.iter import safe_tee, merge_iterator
 from core.utils.utils import filter_kwargs_by_pydantic, is_generator, is_async_generator, \
-    filter_kwargs_by_init_or_pydantic, to_pydantic_obj, NOT_GIVEN
+    filter_kwargs_by_init_or_pydantic, to_pydantic_obj_with_init, NOT_GIVEN
 
 Input = TypeVar("Input", contravariant=True)
 Output = TypeVar("Output", covariant=True)
@@ -484,7 +484,7 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         if self.bound.__class__.__init__ is BaseModel.__init__:
             return self.bound.model_copy(update=update_fields, deep=True)
 
-        return to_pydantic_obj(Flow, {**self.bound.model_dump(exclude_unset=True), **update_fields})
+        return to_pydantic_obj_with_init(Flow, {**self.bound.model_dump(exclude_unset=True), **update_fields})
 
 
 class RetryFlow(BindingFlowBase[Input, Output]):
@@ -564,6 +564,15 @@ class IdentityFlow(Flow[Other, Other]):
 
     def transform(self, inp: Iterator[Other]) -> Iterator[Other]:
         yield from inp
+
+
+class FixOutputFlow(Flow[Any, Output]):
+    """Flow return fix output"""
+    output: Output
+
+    @trace
+    def invoke(self, inp: Any) -> Output:
+        return self.output
 
 
 identity = IdentityFlow[Any]()

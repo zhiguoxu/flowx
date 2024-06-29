@@ -1,13 +1,14 @@
-from typing import List, Dict, Any, get_args
+from typing import List, Dict, Any
 
 from openai import OpenAI
 from openai.types import ChatModel
 from pydantic import Field
 
-from core.llm.llm import LLM, ChatResult, to_chat_messages, ToolChoiceLiteral
-from core.llm.openai.utils import chat_result_from_openai, to_openai_message, tool_to_openai, \
-    get_tool_choice_by_pydantic
+from core.llm.llm import LLM, ChatResult, to_chat_messages, LLMInput
+from core.llm.openai.utils import chat_result_from_openai, to_openai_message, tool_to_openai, tools_to_openai, \
+    tool_choice_to_openai
 from core.messages.chat_message import ChatMessage, Role
+from core.messages.utils import remove_extra_info
 from core.utils.utils import filter_kwargs_by_method
 
 
@@ -24,19 +25,21 @@ class OpenAILLM(LLM):
                     "Refer to ChatCompletionChunk.usage and ChatCompletionStreamOptionsParam for more info"
     )
 
-    def chat(self, messages: List[ChatMessage] | str, **kwargs: Any) -> ChatResult:
+    def chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
+        # Not specify stream=False.
+        # Maybe, we want to stream in the background and merge the streamed chunks at the end.
         return self._chat_(messages, **kwargs).merge_chunk()
 
-    def stream_chat(self, messages: List[ChatMessage] | str, **kwargs: Any) -> ChatResult:
+    def stream_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         return self._chat_(messages, **{**kwargs, "stream": True})
 
-    def _chat_(self, messages: List[ChatMessage] | str, **kwargs: Any) -> ChatResult:
-        if isinstance(messages, str):
-            messages = to_chat_messages(messages)
+    def _chat_(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
+        messages = to_chat_messages(messages)
+        messages = remove_extra_info(messages)
         messages = self.try_add_system_message(messages)
         openai_messages = list(map(to_openai_message, messages))
-        kwargs = {**self.chat_kwargs, **kwargs}
-        assert not (kwargs["stream"] and kwargs["n"] > 1)
+        kwargs = self.get_chat_kwargs(**kwargs)
+        assert not (kwargs.get("stream") and kwargs["n"] > 1)
         resp = self.client.chat.completions.create(messages=openai_messages, **kwargs)
         return chat_result_from_openai(resp)
 
@@ -45,30 +48,26 @@ class OpenAILLM(LLM):
             return messages
         return [ChatMessage(role=Role.SYSTEM, content=self.system_prompt)] + list(messages)
 
-    @property
-    def chat_kwargs(self) -> Dict[str, Any]:
-        effect_generation_args = {
-            "max_new_tokens", "temperature", "streaming", "repetition_penalty", "stop", "n"
-        }
-        kwargs = self.model_dump(exclude_none=True, include=effect_generation_args)
-        kwargs.update(self.model_dump(exclude_none=True))
+    def get_chat_kwargs(self, **kwargs: Any) -> Dict[str, Any]:
+        kwargs = {**self.model_dump(exclude_none=True, by_alias=True), **kwargs}
 
-        if "max_new_tokens" in kwargs:
-            kwargs["max_tokens"] = kwargs.pop("max_new_tokens")
-        kwargs["stream"] = kwargs.pop("streaming")
+        kwargs["max_tokens"] = kwargs.pop("max_new_tokens")
+        if "stream" not in kwargs:
+            kwargs["stream"] = kwargs.pop("streaming")
 
         # Openai doesn't support repetition_penalty,
         # but we can extend it to other models that support it
         # with openai interface compatible server by using 'extra_body'.
-        repetition_penalty = kwargs.pop("repetition_penalty")
-        if not self.model.startswith("gpt"):
+        if repetition_penalty := kwargs.pop("repetition_penalty", None):
             kwargs["extra_body"] = dict(repetition_penalty=repetition_penalty)
 
         if kwargs.get("stream_include_usage"):
             kwargs["stream_options"] = dict(include_usage=True)
 
-        kwargs["tools"] = self.openai_tools
-        kwargs["tool_choice"] = self.openai_tool_choice
+        if tools := kwargs.pop("tools", None):
+            kwargs["tools"] = tools_to_openai(tools)
+        if tool_choice := kwargs.pop("tool_choice", None):
+            kwargs["tool_choice"] = tool_choice_to_openai(tool_choice)
 
         return filter_kwargs_by_method(OpenAI().chat.completions.create, kwargs, exclude_none=True)
 
@@ -82,19 +81,3 @@ class OpenAILLM(LLM):
     @property
     def openai_tools(self) -> List[Dict[str, Any]] | None:
         return list(map(tool_to_openai, self.tools)) if self.tools else None
-
-    @property
-    def openai_tool_choice(self):
-        if not self.tool_choice:
-            return None
-
-        tool_choice = "required" if self.tool_choice == "any" else self.tool_choice
-        if tool_choice in get_args(ToolChoiceLiteral):
-            return tool_choice
-
-        for tool in self.tools or []:
-            if tool.name == tool_choice:
-                return get_tool_choice_by_pydantic(tool.args_schema)
-
-        tool_names = list(map(lambda tool_: tool_.name, self.tools))
-        raise ValueError(f"""Error tool choice: "{self.tool_choice}" not in tools: {tool_names}""")
