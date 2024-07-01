@@ -1,8 +1,5 @@
-<div style="text-align: center">
-
 English | [简体中文](README_zh-CN.md)
 
-</div>
 
 # LLMFlow
 
@@ -15,7 +12,7 @@ LCEL, but with a more straightforward and simple internal implementation. Users 
 started with LLMFlow and extend or modify it as needed.
 
 For example, LLMFlow implements the core functionality of LangChain's AgentExecutor
-in [less than 300 lines of code](https://github.com/zhiguoxu/llmflow/blob/main/core/agents/agent.py). This is
+in less than 300 lines of [code](https://github.com/zhiguoxu/llmflow/blob/main/core/agents/agent.py). This is
 particularly beneficial for users who want to understand the underlying implementation of agents and make further
 optimizations.
 
@@ -42,7 +39,7 @@ agent.invoke("what's 1024*2024?")
 ## Why Do We Need LLMFlow?
 
 ---
-Although LangChain provides a powerful platform for building LLM applications, its complex design also brings several
+Although LangChain provides a powerful framework for building LLM applications, its complex design also brings several
 issues with deeper use.
 
 LangChain's extensive use of abstraction results in highly complex code, making it difficult to understand and maintain.
