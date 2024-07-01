@@ -3,7 +3,7 @@ English | [简体中文](README_zh-CN.md)
 
 # LLMFlow
 
----
+
 
 ## What's LLMFlow?
 
@@ -36,9 +36,9 @@ agent = Agent(llm=llm, tools=[multiply])
 agent.invoke("what's 1024*2024?")
 ```
 
-## Why Do We Need LLMFlow?
+## Why do we need LLMFlow?
 
----
+
 Although LangChain provides a powerful framework for building LLM applications, its complex design also brings several
 issues with deeper use.
 
