@@ -15,7 +15,7 @@ ToolOutput = TypeVar("ToolOutput")
 class Tool(BaseModel, Generic[ToolOutput]):
     function: Callable[..., ToolOutput]
     args_schema: Type[BaseModel]
-    return_direct: bool = False  # todo
+    return_direct: bool = False  # todo use openai's parallel_tool_calls
 
     def __init__(self,
                  function: Callable[..., ToolOutput],
@@ -44,6 +44,9 @@ def tool(*args: str | Callable[..., ToolOutput] | Flow[Any, ToolOutput],
 
     def make_tool(func: Callable[..., ToolOutput]) -> Tool[ToolOutput]:
         name = tool_name or func.__name__
+        if func.__doc__ is None:
+            raise ValueError(f"Function【{name}】must have a docstring as it's description.")
+
         return Tool(function=func,
                     args_schema=args_schema,
                     name=name,

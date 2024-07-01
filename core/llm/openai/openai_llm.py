@@ -67,7 +67,7 @@ class OpenAILLM(LLM):
         if tools := kwargs.pop("tools", None):
             kwargs["tools"] = tools_to_openai(tools)
         if tool_choice := kwargs.pop("tool_choice", None):
-            kwargs["tool_choice"] = tool_choice_to_openai(tool_choice)
+            kwargs["tool_choice"] = tool_choice_to_openai(tool_choice, tools)
 
         return filter_kwargs_by_method(OpenAI().chat.completions.create, kwargs, exclude_none=True)
 

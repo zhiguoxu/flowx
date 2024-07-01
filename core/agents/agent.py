@@ -42,7 +42,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
 
     handle_parsing_errors: bool | str | Callable[[str, Exception], str] = False
     """
-    Specifies how to handle errors from the agent's tool arguments parser
+    Specifies how to handle errors in tool arguments json formatting.
    - If False, raises the error.
    - If True, sends the error back to the LLM as an observation.
    - If a string, sends that string to the LLM as a an observation.
@@ -78,8 +78,8 @@ class Agent(Flow[LLMInput, ChatMessage]):
 
     def chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         # If stream = False, _run_loop only return iter of ChatMessage.
-        response_messages = cast(List[ChatMessage], list(self._run_loop(messages, False, **kwargs)))
-        return ChatResult(messages=response_messages)
+        message_stream = self._run_loop(messages, False, **kwargs)
+        return ChatResult(messages=cast(List[ChatMessage], list(message_stream)))
 
     def stream_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         return ChatResult(message_stream_for_agent=self._run_loop(messages, True, **kwargs))
@@ -107,12 +107,13 @@ class Agent(Flow[LLMInput, ChatMessage]):
         loop_count = 0
         time_elapsed = 0.0
         start_time = time.time()
-        has_observation = False
+        has_observation = True
         disable_tool_calls = False
         # Prevents calling the same tools with the same args.
         used_tool_calls: Dict[str, set[str]] = defaultdict(set)
         while has_observation and loop_count <= self.max_iterations and time_elapsed <= self.max_execution_time:
             loop_count += 1
+            has_observation = False
             logger.debug(f"\n\n-------------- Turn {loop_count}  ---------------\n")
 
             # 1. Check and disable tool calls, and we hope it will never trigger tool calls in the following loop.
@@ -232,7 +233,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
                         "To retry, set `handle_parsing_errors=True` in Agent."
                         f"Error details: {str(e)}, invalid function_args: {function_args}"
                     )
-                observation = "Invalid or incomplete response, the response's tool arguments must be a valid json str."
+                observation = "Invalid or incomplete response."
             elif isinstance(self.handle_parsing_errors, str):
                 observation = self.handle_parsing_errors
             elif callable(self.handle_parsing_errors):
