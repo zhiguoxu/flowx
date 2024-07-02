@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import time
 from typing import List, Any, TYPE_CHECKING
 from core.callbacks.callback_handler import CallbackHandler
@@ -19,7 +21,7 @@ class CallbackManager(CallbackHandler):
     def __init__(self) -> None:
         self.handlers: List[CallbackHandler] = []
 
-    def on_flow_start(self, flow: "Flow", inp: Any, **kwargs: Any) -> bool:
+    def on_flow_start(self, flow: Flow, inp: Any, **kwargs: Any) -> bool:
         if not is_run_stack_empty() and current_flow() is flow.id:  # prevent re-enter stack
             logger.warning(f"Flow re-enter on_flow_start, please check and remove extra @trace. Flow:【{flow}】")
             return False

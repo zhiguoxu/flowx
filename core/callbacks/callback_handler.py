@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import abc
 from typing import Any, TYPE_CHECKING
 
@@ -7,7 +9,7 @@ if TYPE_CHECKING:
 
 class CallbackHandler(abc.ABC):
     @abc.abstractmethod
-    def on_flow_start(self, flow: "Flow", inp: Any, **kwargs: Any) -> bool:
+    def on_flow_start(self, flow: Flow, inp: Any, **kwargs: Any) -> bool:
         ...
 
     @abc.abstractmethod

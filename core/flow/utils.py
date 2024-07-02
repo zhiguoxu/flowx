@@ -15,8 +15,10 @@ def recurse_flow(flow: Any, inp: Any):
             f"Recursion limit reached when invoking {flow} with input {inp}."
         )
     config.recursion_limit -= 1
-    yield
-    config.recursion_limit += 1
+    try:
+        yield
+    finally:
+        config.recursion_limit += 1
 
 
 class ConfigurableField(BaseModel):

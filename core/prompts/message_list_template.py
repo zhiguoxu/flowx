@@ -66,6 +66,18 @@ class MessageListTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
                 ret.add(msg.var_name)
         return ret
 
+    def __add__(self, other: str | List[str] | Tuple[str, str] | MessageTemplateLike) -> MessageListTemplate:
+        # Allow for easy combining.
+        if isinstance(other, MessageListTemplate):
+            return MessageListTemplate(messages=self.messages + other.messages)
+        elif isinstance(other, (ChatMessage, MessageTemplate, MessagesPlaceholder)):
+            return MessageListTemplate(messages=self.messages + [other])
+        elif isinstance(other, (str, list, tuple)):
+            other = MessageListTemplate.from_messages(other)
+            return MessageListTemplate(messages=self.messages + other.messages)
+        else:
+            raise NotImplementedError(f"Unsupported operand type for +: {type(other)}")
+
 
 MessageLikeInput = Union[MessageLike, Sequence[MessageLike]]
 PlaceholderInput = Union[MessageLikeInput, Dict[str, MessageLikeInput]]

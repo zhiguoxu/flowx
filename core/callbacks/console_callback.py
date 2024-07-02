@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any, TYPE_CHECKING
 
 from core.callbacks.callback_handler import CallbackHandler
@@ -9,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class ConsoleCallback(CallbackHandler):
-    def on_flow_start(self, flow: "Flow", inp: Any, **kwargs: Any) -> bool:
+    def on_flow_start(self, flow: Flow, inp: Any, **kwargs: Any) -> bool:
         config = get_cur_config()
         print(f"{get_breadcrumbs()}: on_flow_start: {inp}"
               f"{f', {kwargs}' if kwargs else ''}"

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any, Callable, TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -14,7 +16,7 @@ class ListenersCallback(BaseModel, CallbackHandler):
     on_end: Callable[[Run], None] | None = None
     on_error: Callable[[Run], None] | None = None
 
-    def on_flow_start(self, flow: "Flow", inp: Any, **kwargs: Any) -> bool:
+    def on_flow_start(self, flow: Flow, inp: Any, **kwargs: Any) -> bool:
         from core.callbacks.run_stack import current_run
         if self.on_start:
             self.on_start(current_run())

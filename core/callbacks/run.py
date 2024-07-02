@@ -19,7 +19,7 @@ class Run(BaseModel):
     start_time: float = Field(default_factory=time.time)
     end_time: float = 0
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    flow: "Flow"
+    flow: Flow
     config: FlowConfig
     input: Any
     output: Any = None

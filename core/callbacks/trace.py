@@ -23,7 +23,7 @@ def trace(func: Callable[..., Output]) -> Callable[..., Output]:
     if not ENABLE_TRACE:
         return func
 
-    def wrapper(flow: "Flow", inp: Any, **kwargs: Any) -> Output:
+    def wrapper(flow: Flow, inp: Any, **kwargs: Any) -> Output:
         from core.callbacks.callback_manager import callback_manager
         from core.callbacks.run_stack import check_cur_flow
 

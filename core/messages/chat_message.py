@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal, Sequence, Any
+from typing import Literal, Sequence, Any, TYPE_CHECKING
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from core.prompts.message_list_template import MessageListTemplate
 
 
 class Function(BaseModel):
@@ -47,6 +50,10 @@ class ChatMessage(BaseModel):
     tool_calls: Sequence[ToolCall] | None = None  # for assistant
     tool_call_id: str | None = None  # for tool
     finish_reason: Literal["stop", "length", "tool_calls", "content_filter"] | str | None = None
+
+    def __add__(self, other: Any) -> MessageListTemplate:
+        from core.prompts.message_list_template import MessageListTemplate
+        return MessageListTemplate(messages=[self]) + other
 
 
 class FunctionChunk(BaseModel):

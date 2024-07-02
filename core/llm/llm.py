@@ -83,7 +83,7 @@ class LLM(Flow[LLMInput, ChatMessage]):
     def with_history(self,
                      get_session_history: Callable[..., BaseChatMessageHistory],
                      history_factory_config: Sequence[ConfigurableField] | None = None
-                     ) -> "LLMWithHistory[ChatMessage]":
+                     ) -> LLMWithHistory[ChatMessage]:
         from core.llm.llm_with_history import LLMWithHistory
         prompt = MessageListTemplate.from_messages([
             MessagesPlaceholder(var_name="input")

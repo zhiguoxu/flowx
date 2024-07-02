@@ -55,7 +55,7 @@ def filter_kwargs_by_init_or_pydantic(model_type: Type[Model] | Model,
     return filter_kwargs_by_pydantic(model_type, kwargs, exclude=exclude, exclude_none=exclude_none)
 
 
-def to_pydantic_obj_with_init(model_type: Type, obj: Dict[str, Any]) -> Model:
+def to_pydantic_obj_with_init(model_type: Type[Model], obj: Dict[str, Any]) -> Model:
     return _to_pydantic_obj_with_init_dfs(model_type, obj)
 
 

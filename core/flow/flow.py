@@ -227,8 +227,10 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
     def get_run(self) -> Iterator[Run]:
         run = Run(flow=self, config=FlowConfig(), input=None)
         var_run_cache.get()[self.id] = run
-        yield run
-        var_run_cache.get().pop(self.id)
+        try:
+            yield run
+        finally:
+            var_run_cache.get().pop(self.id)
 
 
 class FunctionFlow(Flow[Input, Output]):
@@ -508,7 +510,8 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         if self.bound.__class__.__init__ is BaseModel.__init__:
             return self.bound.model_copy(update=update_fields, deep=True)
 
-        return to_pydantic_obj_with_init(Flow, {**self.bound.model_dump(exclude_unset=True), **update_fields})
+        return to_pydantic_obj_with_init(self.bound.__class__,
+                                         {**self.bound.model_dump(exclude_unset=True), **update_fields})
 
 
 class RetryFlow(BindingFlowBase[Input, Output]):
