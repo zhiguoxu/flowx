@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import wait, FIRST_COMPLETED
+from contextlib import contextmanager
 from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awaitable, AsyncIterator, Union, \
     List, Dict, Type, Tuple
 
@@ -13,6 +14,7 @@ from typing_extensions import Self
 
 from core.callbacks.listeners_callback import ListenersCallback
 from core.callbacks.run import Run
+from core.callbacks.run_cache import var_run_cache
 from core.callbacks.trace import trace
 from core.flow.addable_dict import AddableDict
 from core.flow.config import FlowConfig, get_cur_config, var_local_config
@@ -33,7 +35,7 @@ def empty_flow_context(arg: Callable[..., Output]) -> Callable[..., Output]:
     return arg
 
 
-class FlowBase(Generic[Input, Output], ABC):
+class Flowable(Generic[Input, Output], ABC):
     @classmethod
     def __get_pydantic_core_schema__(cls, _source_type: Any, _handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
         # https://docs.pydantic.dev/latest/concepts/types/#handling-third-party-types
@@ -59,34 +61,34 @@ class FlowBase(Generic[Input, Output], ABC):
         ...
 
     @abstractmethod
-    def __or__(self, other: FlowLike[Output, Other]) -> FlowBase[Input, Other]:
+    def __or__(self, other: FlowLike[Output, Other]) -> Flowable[Input, Other]:
         ...
 
     @abstractmethod
-    def __ror__(self, other: FlowLike[Other, Input]) -> FlowBase[Other, Output]:
+    def __ror__(self, other: FlowLike[Other, Input]) -> Flowable[Other, Output]:
         ...
 
     @abstractmethod
-    def pipe(self, *others: FlowLike[Output, Other], name: str | None = None) -> FlowBase[Input, Other]:
+    def pipe(self, *others: FlowLike[Output, Other], name: str | None = None) -> Flowable[Input, Other]:
         ...
 
     @abstractmethod
-    def bind(self, **kwargs: Any) -> FlowBase[Input, Output]:
+    def bind(self, **kwargs: Any) -> Flowable[Input, Output]:
         ...
 
     @abstractmethod
     def with_config(self,
                     config: FlowConfig | None = None,
                     inheritable: bool = True,
-                    **kwargs: Any) -> FlowBase[Input, Output]:
+                    **kwargs: Any) -> Flowable[Input, Output]:
         ...
 
     @abstractmethod
-    def configurable_fields(self, **kwargs: str | ConfigurableField) -> FlowBase[Input, Output]:
+    def configurable_fields(self, **kwargs: str | ConfigurableField) -> Flowable[Input, Output]:
         """Configure particular flow fields at runtime."""
 
     @abstractmethod
-    def with_configurable(self, **kwargs: Any) -> FlowBase[Input, Output]:
+    def with_configurable(self, **kwargs: Any) -> Flowable[Input, Output]:
         """Set the configurable arguments specified by configurable_fields.
         It is another way of pass arguments to invoke."""
 
@@ -94,33 +96,43 @@ class FlowBase(Generic[Input, Output], ABC):
     def with_retry(self, *,
                    retry_if_exception_type: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception,
                    wait_exponential_jitter: bool = True,
-                   max_attempt: int = 3) -> FlowBase[Input, Output]:
+                   max_attempt: int = 3) -> Flowable[Input, Output]:
         ...
 
     @abstractmethod
-    def pick(self, keys: List[str]) -> FlowBase[Input, Dict[str, Any]]:
+    def pick(self, keys: List[str]) -> Flowable[Input, Dict[str, Any]]:
         """Pick keys from the dict output of this flow."""
 
     @abstractmethod
-    def drop(self, keys: List[str]) -> FlowBase[Input, Dict[str, Any]]:
+    def drop(self, keys: List[str]) -> Flowable[Input, Dict[str, Any]]:
         """Drop keys of the dict output of this flow."""
 
     @abstractmethod
-    def assign(self, **kwargs: FlowLike[Input, Any]) -> FlowBase[Input, Dict[str, Any]]:
+    def assign(self, **kwargs: FlowLike[Input, Any]) -> Flowable[Input, Dict[str, Any]]:
         """Assigns new fields to the dict output of this flow."""
 
     @abstractmethod
     def with_listeners(self,
                        on_start: Callable[[Run], None] | None = None,
                        on_end: Callable[[Run], None] | None = None,
-                       on_error: Callable[[Run], None] | None = None) -> FlowBase[Input, Output]:
+                       on_error: Callable[[Run], None] | None = None) -> Flowable[Input, Output]:
         """Bind lifecycle listeners to a Flow."""
 
+    @abstractmethod
+    @contextmanager
+    def get_run(self) -> Iterator[Run]:
+        """"Prepare an empty run before flow start, then we can get the run out of running context, example:
+        llm = OpenAILLM()
+        with llm.get_run() as llm_run:
+            llm.invoke("你好")
+            print(llm_run.extra_data["token_usage"])
+        """
 
-class Flow(BaseModel, FlowBase[Input, Output], ABC):
+
+class Flow(BaseModel, Flowable[Input, Output], ABC):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str | None = None
-    class_type: Type = FlowBase
+    class_type: Type = Flowable
 
     def __init_subclass__(cls, **kwargs):
         from core.context import flow_context
@@ -211,6 +223,13 @@ class Flow(BaseModel, FlowBase[Input, Output], ABC):
                        on_error: Callable[[Run], None] | None = None) -> BindingFlow[Input, Output]:
         return self.with_config(callbacks=[ListenersCallback(on_start=on_start, on_end=on_end, on_error=on_error)])
 
+    @contextmanager
+    def get_run(self) -> Iterator[Run]:
+        run = Run(flow=self, config=FlowConfig(), input=None)
+        var_run_cache.get()[self.id] = run
+        yield run
+        var_run_cache.get().pop(self.id)
+
 
 class FunctionFlow(Flow[Input, Output]):
     func: Callable[..., Output] | Callable[..., Iterator[Output]]
@@ -261,7 +280,7 @@ class FunctionFlow(Flow[Input, Output]):
 
 
 class SequenceFlow(Flow[Input, Output]):
-    steps: List[FlowBase]
+    steps: List[Flowable]
 
     def __init__(self, *steps: FlowLike[Any, Any], **kwargs: Any):
         flow_steps: List[Flow] = list(map(to_flow, steps))
@@ -288,8 +307,8 @@ class SequenceFlow(Flow[Input, Output]):
 
 
 class ParallelFlow(Flow[Input, Dict[str, Any]]):
-    steps: Mapping[str, FlowBase[Input, Any]]
-    steps_without_key: List[FlowBase[Input, Dict[str, Any]]]
+    steps: Mapping[str, Flowable[Input, Any]]
+    steps_without_key: List[Flowable[Input, Dict[str, Any]]]
 
     # Pydantic will create ValidationError when we initialize ParallelFlow using FunctionFlow as init params!
     # because FunctionFlow[Input, int] is not subclass of Flow[Input, Any] (Flow is subclass if BaseModel),
@@ -393,7 +412,7 @@ class GeneratorFlow(Flow[Input, Output]):
 
 
 class BindingFlowBase(Flow[Input, Output], ABC):
-    bound: FlowBase[Input, Output]
+    bound: Flowable[Input, Output]
 
     def invoke(self, inp: Input) -> Output:
         # Transmit the local_config.
@@ -405,6 +424,11 @@ class BindingFlowBase(Flow[Input, Output], ABC):
     def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
         yield from self.bound.transform(inp, var_local_config.get())
 
+    @contextmanager
+    def get_run(self) -> Iterator[Run]:
+        with self.bound.get_run() as run:
+            yield run
+
 
 class BindingFlow(BindingFlowBase[Input, Output]):
     kwargs: Dict[str, Any] = Field(default_factory=dict)  # local kwargs pass to bound
@@ -413,7 +437,7 @@ class BindingFlow(BindingFlowBase[Input, Output]):
     fields: Dict[str, ConfigurableField] = Field(default_factory=dict)
 
     def __init__(self,
-                 bound: FlowBase[Input, Output],
+                 bound: Flowable[Input, Output],
                  kwargs: Dict[str, Any] | None = None,
                  config: FlowConfig | None = None,
                  local_config: FlowConfig | None = None,
@@ -468,7 +492,7 @@ class BindingFlow(BindingFlowBase[Input, Output]):
 
         return local_config or self.local_config
 
-    def _get_bound(self) -> FlowBase[Input, Output]:
+    def _get_bound(self) -> Flowable[Input, Output]:
         configurable = get_cur_config().configurable
         update_fields = {}
         for k, field in self.fields.items():
@@ -499,7 +523,7 @@ class RetryFlow(BindingFlowBase[Input, Output]):
 
     @field_validator('bound')  # The decorator's order is important here!
     @classmethod
-    def validate_bound(cls, bound: FlowBase[Input, Output]) -> FlowBase:
+    def validate_bound(cls, bound: Flowable[Input, Output]) -> Flowable:
         if isinstance(bound, cls):
             bound = bound.bound
         return bound
@@ -578,7 +602,7 @@ class FixOutputFlow(Flow[Any, Output]):
 identity = IdentityFlow[Any]()
 
 FlowLike_ = Union[
-    FlowBase[Input, Output],
+    Flowable[Input, Output],
     Callable[[Input], Output],
     Callable[[Input], Awaitable[Output]],
     Callable[[Iterator[Input]], Iterator[Output]],

@@ -3,6 +3,7 @@ from typing import List, Any, TYPE_CHECKING
 from core.callbacks.callback_handler import CallbackHandler
 from core.callbacks.console_callback import ConsoleCallback
 from core.callbacks.run import Run
+from core.callbacks.run_cache import var_run_cache
 from core.callbacks.run_stack import current_flow, push_run_stack, current_run, pop_run_stack, is_run_stack_empty, \
     current_config
 from core.flow.config import get_cur_config
@@ -24,6 +25,11 @@ class CallbackManager(CallbackHandler):
             return False
 
         run = Run(flow=flow, input=inp, extra_data=dict(kwargs), config=get_cur_config())
+        run_cache = var_run_cache.get().get(flow.id)
+        if run_cache:
+            run_cache.__dict__ = run.__dict__.copy()
+            run = run_cache
+
         push_run_stack(run)
         self.handler_event("on_flow_start", flow, inp=inp, **kwargs)
         return True

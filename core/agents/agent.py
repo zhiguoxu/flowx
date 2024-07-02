@@ -7,7 +7,7 @@ import json5  # type: ignore[import-untyped]
 from core.callbacks.run_stack import current_run
 from core.callbacks.trace import ENABLE_TRACE, trace
 from core.flow.config import var_local_config
-from core.flow.flow import Flow, to_flow, FunctionFlow, FixOutputFlow
+from core.flow.flow import Flow, FunctionFlow, FixOutputFlow
 from core.llm.llm import LLMInput, LLM, ChatResult, to_chat_messages, ToolChoice
 from core.logging import get_logger
 from core.messages.chat_message import ChatMessage, Role, ToolCall, ChatMessageChunk
@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 
 STOP_TOOL_CALLS_PROMPT = "\nPlease stop calling the tool and summarize the final response to the user."
 EXCEED_MAX_ITERATIONS = "Tool calls execution exceeded max iterations limit {}."
+EXCEED_MAX_EXECUTION_TIME = "Tool calls execution exceeded max max execution time limit {} s."
 
 
 class Agent(Flow[LLMInput, ChatMessage]):
@@ -62,7 +63,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
         chat_result = self.stream_chat(inp, **kwargs)
         intermedia_steps: List[ChatMessage] = []
 
-        # Split intermedia_steps and final answer.
+        # Split output stream into intermedia_steps and final answer.
         def final_answer_stream() -> Iterator[ChatMessageChunk]:
             assert chat_result.message_stream_for_agent
             for message_or_chunk in chat_result.message_stream_for_agent:
@@ -168,7 +169,9 @@ class Agent(Flow[LLMInput, ChatMessage]):
             time_elapsed = time.time() - start_time
 
         if has_observation:
-            yield ChatMessage(role=Role.ASSISTANT, content=EXCEED_MAX_ITERATIONS.format(loop_count))
+            content = (EXCEED_MAX_ITERATIONS.format(loop_count) if loop_count > self.max_iterations else
+                       EXCEED_MAX_EXECUTION_TIME.format(time_elapsed))
+            yield ChatMessage(role=Role.ASSISTANT, content=content)
 
     def _run_step(self,
                   response_message: ChatMessage,

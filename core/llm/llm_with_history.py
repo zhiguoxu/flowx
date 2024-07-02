@@ -9,7 +9,7 @@ from typing_extensions import Self
 from core.callbacks.chat_history import BaseChatMessageHistory
 from core.callbacks.run import Run
 from core.flow.config import get_cur_config, var_local_config, FlowConfig
-from core.flow.flow import BindingFlowBase, FlowBase, to_flow, Flow
+from core.flow.flow import BindingFlowBase, Flowable, to_flow, Flow
 from core.flow.utils import ConfigurableField
 from core.messages.chat_message import ChatMessage
 from core.messages.utils import to_chat_message, MessageLike
@@ -21,7 +21,7 @@ Output = TypeVar("Output", covariant=True, bound=Union[ChatMessage, Dict[str, An
 class LLMWithHistory(BindingFlowBase[Input, Output]):
     """Flow that manages chat message history for another Flow."""
 
-    bound: FlowBase[Input, Output]
+    bound: Flowable[Input, Output]
     """The flow is constructed like 'MessageListTemplate | LLM'"""
 
     get_session_history: Callable[..., BaseChatMessageHistory]

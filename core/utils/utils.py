@@ -55,7 +55,11 @@ def filter_kwargs_by_init_or_pydantic(model_type: Type[Model] | Model,
     return filter_kwargs_by_pydantic(model_type, kwargs, exclude=exclude, exclude_none=exclude_none)
 
 
-def to_pydantic_obj_with_init(model_type: Type, obj: Any) -> Any:
+def to_pydantic_obj_with_init(model_type: Type, obj: Dict[str, Any]) -> Model:
+    return _to_pydantic_obj_with_init_dfs(model_type, obj)
+
+
+def _to_pydantic_obj_with_init_dfs(model_type: Type, obj: Any) -> Any:
     """
     Convert obj dumped dict to pydantic obj.
     Normally, a pydantic object can use the default __init__ method provided by BaseModel to implement it.
@@ -67,10 +71,10 @@ def to_pydantic_obj_with_init(model_type: Type, obj: Any) -> Any:
         model_type = model_type.__origin__
 
         if model_type in (list, tuple, set):
-            return model_type(to_pydantic_obj_with_init(type_args[0], item) for item in obj)
+            return model_type(_to_pydantic_obj_with_init_dfs(type_args[0], item) for item in obj)
 
         if model_type in (dict, Mapping):
-            return {k: to_pydantic_obj_with_init(type_args[1], v) for k, v in obj.items()}
+            return {k: _to_pydantic_obj_with_init_dfs(type_args[1], v) for k, v in obj.items()}
 
     # convert dict to BaseModel
     if ((isinstance(obj, dict) and "class_type" in obj) or
@@ -85,7 +89,7 @@ def to_pydantic_obj_with_init(model_type: Type, obj: Any) -> Any:
         kwargs = {}
         for key, value in obj.items():
             if sub_type := fields_type_hints.get(key):
-                value = to_pydantic_obj_with_init(sub_type, value)
+                value = _to_pydantic_obj_with_init_dfs(sub_type, value)
             kwargs[key] = value
 
         # 2. prepare init kwargs
