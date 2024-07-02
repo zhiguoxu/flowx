@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any, Callable, TYPE_CHECKING
 
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, field_validator
 
 from core.callbacks.chat_history import BaseChatMessageHistory
 from core.callbacks.run_stack import current_run
@@ -13,7 +13,7 @@ from core.flow.utils import ConfigurableField
 from core.messages.chat_message import ChatMessage, ChatMessageChunk
 from core.messages.utils import to_chat_message, MessageLike
 from core.prompts.message_list_template import MessageListTemplate, MessagesPlaceholder
-from core.tool import Tool
+from core.tool import Tool, to_tool, ToolLike
 from core.utils.utils import filter_kwargs_by_init_or_pydantic, add
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 LLMInput = Union[str, Sequence[MessageLike]]
 ToolChoiceLiteral = Literal["none", "auto", "required", "any"]
-ToolChoice = str | ToolChoiceLiteral
+ToolChoice = str | ToolChoiceLiteral | bool
 
 
 class LLM(Flow[LLMInput, ChatMessage]):
@@ -46,6 +46,11 @@ class LLM(Flow[LLMInput, ChatMessage]):
 
     tools: List[Tool] | None = None
     tool_choice: ToolChoice | None = None
+
+    @field_validator('tools')
+    @classmethod
+    def validate_tools(cls, tools: List[Tool | Callable]) -> List[Tool]:
+        return [to_tool(tool) for tool in tools]
 
     @trace
     def invoke(self, inp: LLMInput, **kwargs: Any) -> ChatMessage:
@@ -73,12 +78,8 @@ class LLM(Flow[LLMInput, ChatMessage]):
     def stream_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         ...
 
-    def set_tools(self, tools: List[Tool] | None = None, tool_choice: ToolChoice | None = None):
-        self.tools = tools
-        if not tools:
-            self.tool_choice = None
-        else:
-            self.tool_choice = tool_choice
+    def bin_tools(self, tools: List[ToolLike] | None = None, tool_choice: ToolChoice | None = None):
+        return self.bind(tools=tools, tool_choice=tool_choice)
 
     def with_history(self,
                      get_session_history: Callable[..., BaseChatMessageHistory],

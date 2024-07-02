@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from inspect import signature
-from typing import Callable, Type, Any, TypeVar, Generic
+from typing import Callable, Type, Any, TypeVar, Generic, cast
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo
 
 from core.flow.flow import Flow
-from core.utils.utils import filter_kwargs_by_pydantic
+from core.utils.utils import filter_kwargs_by_pydantic, is_pydantic_class
 
 ToolOutput = TypeVar("ToolOutput")
 
@@ -100,3 +100,20 @@ def create_schema_from_function(func: Callable[..., Any]) -> Type[BaseModel]:
             fields[param_name] = (param_type, FieldInfo(default=param_default))
 
     return create_model(func.__name__, **fields)  # type: ignore[call-overload]
+
+
+ToolLike = Tool | Callable | Type[BaseModel]
+
+
+def to_tool(tool_like: ToolLike) -> Tool:
+    if isinstance(tool_like, Tool):
+        return tool_like
+
+    if callable(tool_like):
+        return cast(Tool, tool(tool_like))
+
+    if is_pydantic_class(tool_like):
+        def not_implemented(**kwargs):
+            raise NotImplemented
+
+        return Tool(args_schema=tool_like, function=not_implemented)

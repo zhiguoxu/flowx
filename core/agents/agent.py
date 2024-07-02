@@ -4,6 +4,8 @@ import time
 from collections import defaultdict
 from typing import Any, Iterator, Dict, List, Tuple, cast, Callable
 import json5  # type: ignore[import-untyped]
+from pydantic import field_validator
+
 from core.callbacks.run_stack import current_run
 from core.callbacks.trace import ENABLE_TRACE, trace
 from core.flow.config import var_local_config
@@ -11,7 +13,7 @@ from core.flow.flow import Flow, FunctionFlow, FixOutputFlow
 from core.llm.llm import LLMInput, LLM, ChatResult, to_chat_messages, ToolChoice
 from core.logging import get_logger
 from core.messages.chat_message import ChatMessage, Role, ToolCall, ChatMessageChunk
-from core.tool import Tool
+from core.tool import Tool, to_tool, ToolLike
 from core.utils.utils import NotGiven, NOT_GIVEN, add
 
 logger = get_logger(__name__)
@@ -49,6 +51,11 @@ class Agent(Flow[LLMInput, ChatMessage]):
    - If a string, sends that string to the LLM as a an observation.
    - If a function, calls it with the invalid arguments and error and sends to the LLM as an observation.
    """
+
+    @field_validator('tools')
+    @classmethod
+    def validate_tools(cls, tools: List[Tool | Callable]) -> List[Tool]:
+        return [to_tool(tool) for tool in tools]
 
     @trace
     def invoke(self, inp: LLMInput, **kwargs: Any) -> ChatMessage:
@@ -268,3 +275,6 @@ class Agent(Flow[LLMInput, ChatMessage]):
                 return str(func_flow.invoke(function_args))
 
         return f"Tool `{function_name}` not found. Please use a provided tool."
+
+    def bin_tools(self, tools: List[ToolLike] | None = None, tool_choice: ToolChoice | None = None):
+        return self.bind(tools=tools, tool_choice=tool_choice)

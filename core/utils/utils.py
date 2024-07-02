@@ -156,6 +156,12 @@ def is_async_generator(func: Any) -> TypeGuard[Callable[..., AsyncIterator]]:
     )
 
 
+def is_pydantic_class(obj: Any) -> bool:
+    return isinstance(obj, type) and (
+        issubclass(obj, BaseModel) or BaseModel in obj.__bases__
+    )
+
+
 def accepts_input_var(func: Callable[..., Any], name: str) -> bool:
     try:
         return inspect.signature(func).parameters.get(name) is not None

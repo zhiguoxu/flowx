@@ -38,7 +38,7 @@ def message_from_openai_choice(choice: Choice) -> ChatMessage:
     message = ChatMessage(role=Role.from_name(choice.message.role),
                           content=choice.message.content,
                           finish_reason=choice.finish_reason)
-    tool_calls = list(map(lambda tool_call: ToolCall(**tool_call.model_dump()), choice.message.tool_calls or []))
+    tool_calls = [ToolCall(**tool_call.model_dump()) for tool_call in choice.message.tool_calls or []]
     if tool_calls:
         message.tool_calls = tool_calls
     return message
@@ -49,8 +49,7 @@ def message_chunk_from_openai_choice(choice_chunk: ChoiceChunk) -> ChatMessageCh
     message_chunk = ChatMessageChunk(role=role,
                                      content=choice_chunk.delta.content,
                                      finish_reason=choice_chunk.finish_reason)
-    tool_calls = list(map(lambda tool_call: ToolCallChunk(**tool_call.model_dump()),
-                          choice_chunk.delta.tool_calls or []))
+    tool_calls = [ToolCallChunk(**tool_call.model_dump()) for tool_call in choice_chunk.delta.tool_calls or []]
     if tool_calls:
         message_chunk.tool_calls = tool_calls
     return message_chunk
@@ -101,6 +100,13 @@ def tools_to_openai(tools: List[Tool]) -> List[Dict[str, Any]]:
 
 
 def tool_choice_to_openai(tool_choice: ToolChoice, tools: List[Tool] | None = None):
+    if isinstance(tool_choice, bool):
+        if not tool_choice:
+            assert tools and len(tools) == 1
+            return get_tool_choice_by_pydantic(tools[0].args_schema)
+        else:
+            return "none"
+
     tool_choice = "required" if tool_choice == "any" else tool_choice
     if tool_choice in get_args(ToolChoiceLiteral):
         return tool_choice
