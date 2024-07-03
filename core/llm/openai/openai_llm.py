@@ -20,7 +20,7 @@ class OpenAILLM(LLM):
     timeout: float = 20  # seconds
     system_prompt: str | None = None
     stream_include_usage: bool = Field(
-        default=False,
+        default=True,
         description="If set, the token usage will return at the end of stream."
                     "Refer to ChatCompletionChunk.usage and ChatCompletionStreamOptionsParam for more info"
     )

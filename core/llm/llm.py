@@ -10,6 +10,7 @@ from core.callbacks.run_stack import current_run
 from core.callbacks.trace import trace, ENABLE_TRACE
 from core.flow.flow import Flow
 from core.flow.utils import ConfigurableField
+from core.llm.types import TokenUsage
 from core.messages.chat_message import ChatMessage, ChatMessageChunk
 from core.messages.utils import to_chat_message, MessageLike
 from core.prompts.message_list_template import MessageListTemplate, MessagesPlaceholder
@@ -19,7 +20,7 @@ from core.utils.utils import filter_kwargs_by_init_or_pydantic, add
 if TYPE_CHECKING:
     from core.llm.llm_with_history import LLMWithHistory
 
-LLMInput = Union[str, Sequence[MessageLike]]
+LLMInput = Union[MessageLike, Sequence[MessageLike]]
 ToolChoiceLiteral = Literal["none", "auto", "required", "any"]
 ToolChoice = str | ToolChoiceLiteral | bool
 
@@ -56,7 +57,7 @@ class LLM(Flow[LLMInput, ChatMessage]):
     def invoke(self, inp: LLMInput, **kwargs: Any) -> ChatMessage:
         chat_result = self.chat(inp, **kwargs)
         if ENABLE_TRACE:
-            current_run().update_extra_data(token_usage=chat_result.usage)
+            current_run().token_usage = chat_result.usage
         return chat_result.messages[0]
 
     @trace
@@ -68,7 +69,7 @@ class LLM(Flow[LLMInput, ChatMessage]):
             yield message_chunk
             token_usage = usage
         if ENABLE_TRACE:
-            current_run().update_extra_data(token_usage=token_usage)
+            current_run().token_usage = token_usage
 
     @abstractmethod
     def chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
@@ -99,28 +100,10 @@ class LLM(Flow[LLMInput, ChatMessage]):
 
 
 def to_chat_messages(inp: LLMInput) -> List[ChatMessage]:
-    if isinstance(inp, str):
-        return [to_chat_message(inp)]
-
-    return list(map(to_chat_message, inp))
-
-
-class TokenUsage(BaseModel):
-    completion_tokens: int
-    """Number of tokens in the generated completion."""
-
-    prompt_tokens: int
-    """Number of tokens in the prompt."""
-
-    total_tokens: int
-    """Total number of tokens used in the request (prompt + completion)."""
-
-    def __add__(self, other: TokenUsage) -> TokenUsage:
-        usage = self.model_copy()
-        usage.completion_tokens += other.completion_tokens
-        usage.prompt_tokens += other.prompt_tokens
-        usage.total_tokens += other.total_tokens
-        return usage
+    try:
+        return [to_chat_message(inp)]  # type: ignore[arg-type]
+    except ValueError as e:
+        return list(map(to_chat_message, inp))
 
 
 class ChatResult(BaseModel):

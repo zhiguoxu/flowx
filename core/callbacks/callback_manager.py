@@ -26,7 +26,7 @@ class CallbackManager(CallbackHandler):
             logger.warning(f"Flow re-enter on_flow_start, please check and remove extra @trace. Flow:【{flow}】")
             return False
 
-        run = Run(flow=flow, input=inp, extra_data=dict(kwargs), config=get_cur_config())
+        run = Run(flow=flow, input=inp, bound_kwargs=kwargs, config=get_cur_config())
         run_cache = var_run_cache.get().get(flow.id)
         if run_cache:
             run_cache.__dict__ = run.__dict__.copy()

@@ -69,7 +69,7 @@ class ToolCallChunk(BaseModel):
 
     def __add__(self, other: ToolCallChunk) -> ToolCallChunk:
         assert self.index == other.index
-        function = self.function or FunctionChunk()
+        function = self.function.model_copy(deep=True) if self.function else FunctionChunk()
         if other.function:
             function.name = (function.name or "") + (other.function.name or "")
             function.arguments = (function.arguments or "") + (other.function.arguments or "")
@@ -90,7 +90,7 @@ class ChatMessageChunk(BaseModel):
         content: str | None = None
         if self.content is not None or other.content is not None:
             content = (self.content or "") + (other.content or "")
-        tool_calls = list(self.tool_calls or [])
+        tool_calls = [tool_call.model_copy(deep=True) for tool_call in (self.tool_calls or [])]
         for other_tool_call in other.tool_calls or []:
             if other_tool_call.index >= len(tool_calls):
                 assert other_tool_call.index == len(tool_calls)

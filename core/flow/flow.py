@@ -125,7 +125,7 @@ class Flowable(Generic[Input, Output], ABC):
         llm = OpenAILLM()
         with llm.get_run() as llm_run:
             llm.invoke("你好")
-            print(llm_run.extra_data["token_usage"])
+            print(llm_run.token_usage)
         """
 
 
@@ -431,6 +431,9 @@ class BindingFlowBase(Flow[Input, Output], ABC):
         with self.bound.get_run() as run:
             yield run
 
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.bound, name)
+
 
 class BindingFlow(BindingFlowBase[Input, Output]):
     kwargs: Dict[str, Any] = Field(default_factory=dict)  # local kwargs pass to bound
@@ -512,6 +515,12 @@ class BindingFlow(BindingFlowBase[Input, Output]):
 
         return to_pydantic_obj_with_init(self.bound.__class__,
                                          {**self.bound.model_dump(exclude_unset=True), **update_fields})
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self.kwargs:
+            return self.kwargs[name]
+
+        return getattr(self.bound, name)
 
 
 class RetryFlow(BindingFlowBase[Input, Output]):

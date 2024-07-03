@@ -9,8 +9,9 @@ from pydantic import field_validator
 from core.callbacks.run_stack import current_run
 from core.callbacks.trace import ENABLE_TRACE, trace
 from core.flow.config import var_local_config
-from core.flow.flow import Flow, FunctionFlow, FixOutputFlow
-from core.llm.llm import LLMInput, LLM, ChatResult, to_chat_messages, ToolChoice
+from core.flow.flow import Flow, FunctionFlow, FixOutputFlow, Flowable
+from core.llm.llm import LLMInput, ChatResult, to_chat_messages, ToolChoice
+from core.llm.types import TokenUsage
 from core.logging import get_logger
 from core.messages.chat_message import ChatMessage, Role, ToolCall, ChatMessageChunk
 from core.tool import Tool, to_tool, ToolLike
@@ -26,7 +27,7 @@ EXCEED_MAX_EXECUTION_TIME = "Tool calls execution exceeded max max execution tim
 class Agent(Flow[LLMInput, ChatMessage]):
     """Has the same interface as LLM"""
 
-    llm: LLM
+    llm: Flowable[LLMInput, ChatMessage]
 
     tools: List[Tool] | None = None
     """This tools will override llm tools"""
@@ -43,13 +44,15 @@ class Agent(Flow[LLMInput, ChatMessage]):
     return_intermediate_steps: bool = False
     """Whether to return the agent's trajectory of intermediate steps at the end in addition to the final output."""
 
-    handle_parsing_errors: bool | str | Callable[[str, Exception], str] = False
+    handle_parsing_errors: bool | str | Callable[[str, Exception], Tuple[bool, str | Dict[str, Any]]] = False
     """
     Specifies how to handle errors in tool arguments json formatting.
    - If False, raises the error.
    - If True, sends the error back to the LLM as an observation.
    - If a string, sends that string to the LLM as a an observation.
-   - If a function, calls it with the invalid arguments and error and sends to the LLM as an observation.
+   - If a function, calls it with the invalid arguments and error,
+        the result is a tuple (is_fix, fixed_argument dict or str observation),
+        if is_fix=True, it return the fixed_argument dict, else return str observation.
    """
 
     @field_validator('tools')
@@ -117,6 +120,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
         start_time = time.time()
         has_observation = True
         disable_tool_calls = False
+        current_run().token_usage = TokenUsage()
         # Prevents calling the same tools with the same args.
         used_tool_calls: Dict[str, set[str]] = defaultdict(set)
         while has_observation and loop_count <= self.max_iterations and time_elapsed <= self.max_execution_time:
@@ -140,38 +144,42 @@ class Agent(Flow[LLMInput, ChatMessage]):
             llm_with_kwargs = llm.bind(**llm_kwargs)
 
             # 3. Run one step by calling llm (expect tool calls or final answer).
-            if not stream:
-                invoke_response = llm_with_kwargs.invoke(messages)
-                step_output = self._run_step(invoke_response, used_tool_calls, callable_tools)
-            else:
-                stream_response = llm_with_kwargs.stream(messages)
-                step_output = self._stream_run_step(
-                    stream_response, used_tool_calls, callable_tools)  # type: ignore[assignment, arg-type]
+            with llm_with_kwargs.get_run() as run:
+                if not stream:
+                    invoke_response = llm_with_kwargs.invoke(messages)
+                    step_output = self._run_step(invoke_response, used_tool_calls, callable_tools)
+                else:
+                    stream_response = llm_with_kwargs.stream(messages)
+                    step_output = self._stream_run_step(
+                        stream_response, used_tool_calls, callable_tools)  # type: ignore[assignment, arg-type]
 
-            # 4. Yield new messages and collect message for next turn.
-            step_message_cache = None
-            for step_message, repeated_tool_call in step_output:
-                # 4.1. yield new messages.
-                disable_tool_calls = disable_tool_calls or repeated_tool_call
-                is_intermediate = step_message.tool_calls or step_message.role == Role.TOOL
-                if self.return_intermediate_steps or not is_intermediate:
-                    yield step_message
+                # 4. Yield new messages and collect message for next turn.
+                step_message_cache = None
+                for step_message, repeated_tool_call in step_output:
+                    # 4.1. yield new messages.
+                    disable_tool_calls = disable_tool_calls or repeated_tool_call
+                    is_intermediate = step_message.tool_calls or step_message.role == Role.TOOL
+                    if self.return_intermediate_steps or not is_intermediate:
+                        yield step_message
 
-                # 4.2. collect next turn messages.
-                if isinstance(step_message, ChatMessageChunk):
-                    # Thought or final answer, no need to add to messages.
-                    step_message_cache = add(step_message_cache, step_message)
-                else:  # tool calls or observations
-                    if step_message_cache:
-                        assert step_message.tool_calls, \
-                            "The first ChatMessage after ChatMessageChunk must have tool_calls."
-                        # step_message_cache is thoughts, not final answer, when we get tool_calls,
-                        # so add it to the tool_calls message.
-                        step_message = step_message.model_copy()
-                        step_message.content = (step_message.content or "") + (step_message_cache.content or "")
-                        step_message_cache = None
-                    messages.append(step_message)
-                has_observation = has_observation or step_message.tool_calls is not None
+                    # 4.2. collect next turn messages.
+                    if isinstance(step_message, ChatMessageChunk):
+                        # Thought or final answer, no need to add to messages.
+                        step_message_cache = add(step_message_cache, step_message)
+                    else:  # tool calls or observations
+                        if step_message_cache:
+                            assert step_message.tool_calls, \
+                                "The first ChatMessage after ChatMessageChunk must have tool_calls."
+                            # step_message_cache is thoughts, not final answer, when we get tool_calls,
+                            # so add it to the tool_calls message.
+                            step_message = step_message.model_copy()
+                            step_message.content = (step_message.content or "") + (step_message_cache.content or "")
+                            step_message_cache = None
+                        messages.append(step_message)
+                    has_observation = has_observation or step_message.tool_calls is not None
+
+                if run.token_usage:
+                    current_run().token_usage += run.token_usage  # type: ignore[operator]
 
             time_elapsed = time.time() - start_time
 
@@ -185,7 +193,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
                   used_tool_calls: Dict[str, set[str]],
                   tools: List[Tool] | None
                   ) -> Iterator[Tuple[ChatMessage, bool]]:  # [, is repeat tool call]
-        # Yield llm just output message.
+        # Yield message llm just output.
         yield response_message, False
 
         # Process tool_calls and get observation, then yield it.
@@ -247,13 +255,17 @@ class Agent(Flow[LLMInput, ChatMessage]):
             elif isinstance(self.handle_parsing_errors, str):
                 observation = self.handle_parsing_errors
             elif callable(self.handle_parsing_errors):
-                observation = self.handle_parsing_errors(function_args, e)
+                is_fixed, observation = self.handle_parsing_errors(function_args, e)  # type: ignore[assignment]
+                if is_fixed:  # Give it a chance to fix the invalid arguments.
+                    assert isinstance(observation, dict)
+                    function_args = observation
             else:
                 raise ValueError(f"Got unexpected type of `handle_parsing_errors`: {self.handle_parsing_errors}")
 
-            FixOutputFlow(output=observation).invoke(function_args)  # for trace
-            logger.error(f"Function call arguments json format error: {function_args}, {observation}, {e}")
-            return ChatMessage(role=Role.TOOL, tool_call_id=tool_call.id, content=observation), False
+            if not isinstance(function_args, dict):
+                FixOutputFlow(output=observation).invoke(function_args)  # for trace
+                logger.error(f"Function call arguments json format error: {function_args}, {observation}, {e}")
+                return ChatMessage(role=Role.TOOL, tool_call_id=tool_call.id, content=observation), False
 
         tool_response = self._tool_dispatcher(function_call.name, function_args, tools)
         logger.debug(f"Function Call observation: {tool_response}")
@@ -266,7 +278,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
         return observation_msg, repeated_tool_call
 
     def _tool_dispatcher(self, function_name: str, function_args: dict, tools: List[Tool] | None) -> str:
-        for tool in tools or self.tools or self.llm.tools or []:
+        for tool in tools or self.tools or getattr(self.llm, "tools", []):
             if tool.name == function_name:
                 local_config = var_local_config.get()
                 func_flow: Flow = FunctionFlow(lambda inp: tool(**inp), name=tool.name)

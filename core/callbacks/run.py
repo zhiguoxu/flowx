@@ -11,6 +11,8 @@ from core.flow.config import FlowConfig
 
 from typing import TYPE_CHECKING
 
+from core.llm.types import TokenUsage
+
 if TYPE_CHECKING:
     from core.flow.flow import Flow
 
@@ -25,6 +27,8 @@ class Run(BaseModel):
     output: Any = None
     error: BaseException | None = None
     thread_id: int = Field(default_factory=threading.get_ident)
+    bound_kwargs: Dict[str, Any] | None = None
+    token_usage: TokenUsage | None = None
     extra_data: Dict[str, Any] = Field(default_factory=dict)
 
     def update_extra_data(self, **kwargs: Any):
