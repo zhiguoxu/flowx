@@ -12,7 +12,7 @@ LCEL, but with a more straightforward and simple internal implementation. Users 
 started with LLMFlow and extend or modify it as needed.
 
 For example, LLMFlow implements the core functionality of LangChain's AgentExecutor
-in less than 300 lines of [code](https://github.com/zhiguoxu/llmflow/blob/main/core/agents/agent.py). This is
+in less than 400 lines of [code](https://github.com/zhiguoxu/llmflow/blob/main/core/agents/agent.py). This is
 particularly beneficial for users who want to understand the underlying implementation of agents and make further
 optimizations.
 
@@ -33,7 +33,7 @@ def multiply(left: int, right: int) -> int:
 
 
 agent = Agent(llm=llm, tools=[multiply])
-agent.invoke("what's 1024*2024?")
+agent.invoke("what is 1024*2024?")
 ```
 
 ## Why do we need LLMFlow?

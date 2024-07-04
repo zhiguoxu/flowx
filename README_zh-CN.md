@@ -9,7 +9,7 @@
 
 **LLMFlow** 是一个用于构建大语言模型（LLM）应用的轻量级框架。它提供了与 LangChain 类似的 API 接口（LCEL），但内部实现更加简洁直观。熟悉 LangChain 的用户可以轻松上手，并根据需求进行快速扩展和改造。
 
-例如，LLMFlow 用不到三百行的[代码](https://github.com/zhiguoxu/llmflow/blob/main/core/agents/agent.py)实现了 LangChain 的
+例如，LLMFlow 用不到4四百行的[代码](https://github.com/zhiguoxu/llmflow/blob/main/core/agents/agent.py)实现了 LangChain 的
 AgentExecutor 的核心功能，这对于一个想了解 Agent 底层实现，并要做进一步优化的用户来说，是一个极大的福利。
 
 LLMFlow 的使用也非常简单，以下是一个 Agent 的示例：
