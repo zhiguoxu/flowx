@@ -132,11 +132,7 @@ class ChatResult(BaseModel):
             message_cache: ChatMessageChunk | None = None
             for message_chunk, usage_chunk in self.message_stream:
                 message_cache = add(message_cache, message_chunk)
-                if self.usage or usage_chunk:
-                    if self.usage and usage_chunk:
-                        self.usage += usage_chunk
-                    else:
-                        self.usage = self.usage or usage_chunk
+                self.usage = add(self.usage, usage_chunk)
             if message_cache:
                 self.messages.append(message_cache.to_message())
             self.message_stream = None

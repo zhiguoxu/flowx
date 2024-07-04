@@ -15,7 +15,7 @@ ToolOutput = TypeVar("ToolOutput")
 class Tool(BaseModel, Generic[ToolOutput]):
     function: Callable[..., ToolOutput]
     args_schema: Type[BaseModel]
-    return_direct: bool = False  # todo use openai's parallel_tool_calls
+    return_direct: bool = False
 
     def __init__(self,
                  function: Callable[..., ToolOutput],

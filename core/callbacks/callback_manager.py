@@ -7,8 +7,9 @@ from core.callbacks.console_callback import ConsoleCallback
 from core.callbacks.run import Run
 from core.callbacks.run_cache import var_run_cache
 from core.callbacks.run_stack import current_flow, push_run_stack, current_run, pop_run_stack, is_run_stack_empty, \
-    current_config
+    current_config, parent_run
 from core.flow.config import get_cur_config
+from core.llm.types import TokenUsage
 from core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -40,6 +41,10 @@ class CallbackManager(CallbackHandler):
         run = current_run()
         run.output = output
         run.end_time = time.time()
+        # Add token usage to its caller.
+        _parent_run = parent_run()
+        if _parent_run and run.token_usage:
+            _parent_run.token_usage = (_parent_run.token_usage or TokenUsage()) + run.token_usage
         self.handler_event("on_flow_end", output=output)
         pop_run_stack()
 

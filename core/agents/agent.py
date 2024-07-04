@@ -9,13 +9,12 @@ from pydantic import field_validator
 from core.callbacks.run_stack import current_run
 from core.callbacks.trace import ENABLE_TRACE, trace
 from core.flow.config import var_local_config
-from core.flow.flow import Flow, FunctionFlow, FixOutputFlow, Flowable
+from core.flow.flow import Flow, FunctionFlow, FixOutputFlow, Flowable, GeneratorFlow
 from core.llm.llm import LLMInput, ChatResult, to_chat_messages, ToolChoice
-from core.llm.types import TokenUsage
 from core.logging import get_logger
 from core.messages.chat_message import ChatMessage, Role, ToolCall, ChatMessageChunk
 from core.tool import Tool, to_tool, ToolLike
-from core.utils.utils import NotGiven, NOT_GIVEN, add
+from core.utils.utils import NotGiven, NOT_GIVEN, add, is_generator
 
 logger = get_logger(__name__)
 
@@ -65,7 +64,17 @@ class Agent(Flow[LLMInput, ChatMessage]):
         chat_result = self.chat(inp, **kwargs)
         if self.return_intermediate_steps and ENABLE_TRACE:
             current_run().update_extra_data(intermedia_steps=chat_result.messages[:-1])
-        return chat_result.messages[-1]
+
+        last_message = chat_result.messages[-1]
+        if last_message and last_message.role == Role.TOOL:
+            # If the last message is tool observation, it is returned direct.
+            observation_data = last_message.extra_data
+            if isinstance(observation_data, Flow):
+                last_message = last_message.model_copy(deep=True)
+                last_message.extra_data = observation_data.invoke({})
+                if isinstance(last_message.extra_data, ChatMessage):
+                    last_message = last_message.extra_data
+        return last_message
 
     @trace
     def stream(self, inp: LLMInput, **kwargs: Any  # type: ignore[override]
@@ -74,9 +83,12 @@ class Agent(Flow[LLMInput, ChatMessage]):
         intermedia_steps: List[ChatMessage] = []
 
         # Split output stream into intermedia_steps and final answer.
+        last_message_list: List[ChatMessageChunk | ChatMessage | None] = [None]
+
         def final_answer_stream() -> Iterator[ChatMessageChunk]:
             assert chat_result.message_stream_for_agent
             for message_or_chunk in chat_result.message_stream_for_agent:
+                last_message_list[0] = message_or_chunk
                 if isinstance(message_or_chunk, ChatMessageChunk):
                     yield message_or_chunk
                 else:
@@ -84,6 +96,26 @@ class Agent(Flow[LLMInput, ChatMessage]):
                     intermedia_steps.append(message_or_chunk)
 
         yield from final_answer_stream()
+
+        last_message = last_message_list[0]
+        if last_message and last_message.role == Role.TOOL:
+            intermedia_steps = intermedia_steps[:-1]
+            # If the last message is tool observation, it is returned direct.
+            observation_data = last_message.extra_data
+            if isinstance(observation_data, Flow):
+                def get_observation_stream() -> Iterator[ChatMessageChunk]:
+                    tool_call_id = last_message.tool_call_id
+                    for o in observation_data.stream({}):
+                        if isinstance(o, ChatMessageChunk):
+                            yield o
+                        else:
+                            yield ChatMessageChunk(role=Role.TOOL, tool_call_id=tool_call_id, extra_data=o)
+                        tool_call_id = None
+
+                yield from get_observation_stream()
+            else:
+                yield last_message
+
         if self.return_intermediate_steps and ENABLE_TRACE:
             current_run().update_extra_data(intermedia_steps=intermedia_steps)
 
@@ -106,10 +138,16 @@ class Agent(Flow[LLMInput, ChatMessage]):
         messages = to_chat_messages(messages)
 
         # Prepare tools.
-        if tools is NOT_GIVEN and "tools" in self.model_fields_set:
-            tools = self.tools
-        if tool_choice is NOT_GIVEN and "tool_choice" in self.model_fields_set:
-            tool_choice = self.tool_choice
+        if tools is NOT_GIVEN:
+            if "tools" in self.model_fields_set:
+                tools = self.tools
+            else:
+                tools = getattr(self.llm, "tools", NOT_GIVEN)
+        if tool_choice is NOT_GIVEN:
+            if "tool_choice" in self.model_fields_set:
+                tool_choice = self.tool_choice
+            else:
+                tool_choice = getattr(self.llm, "tool_choice", NOT_GIVEN)
 
         # Prepare llm with local_config.
         local_config = var_local_config.get()
@@ -120,10 +158,13 @@ class Agent(Flow[LLMInput, ChatMessage]):
         start_time = time.time()
         has_observation = True
         disable_tool_calls = False
-        current_run().token_usage = TokenUsage()
+        return_direct = False
         # Prevents calling the same tools with the same args.
         used_tool_calls: Dict[str, set[str]] = defaultdict(set)
-        while has_observation and loop_count <= self.max_iterations and time_elapsed <= self.max_execution_time:
+        while (has_observation and
+               not return_direct and
+               loop_count <= self.max_iterations and
+               time_elapsed <= self.max_execution_time):
             loop_count += 1
             has_observation = False
             logger.debug(f"\n\n-------------- Turn {loop_count}  ---------------\n")
@@ -144,46 +185,50 @@ class Agent(Flow[LLMInput, ChatMessage]):
             llm_with_kwargs = llm.bind(**llm_kwargs)
 
             # 3. Run one step by calling llm (expect tool calls or final answer).
-            with llm_with_kwargs.get_run() as run:
-                if not stream:
-                    invoke_response = llm_with_kwargs.invoke(messages)
-                    step_output = self._run_step(invoke_response, used_tool_calls, callable_tools)
-                else:
-                    stream_response = llm_with_kwargs.stream(messages)
-                    step_output = self._stream_run_step(
-                        stream_response, used_tool_calls, callable_tools)  # type: ignore[assignment, arg-type]
+            if not stream:
+                invoke_response = llm_with_kwargs.invoke(messages)
+                step_output = self._run_step(invoke_response, used_tool_calls, callable_tools)
+            else:
+                stream_response = llm_with_kwargs.stream(messages)
+                step_output = self._stream_run_step(
+                    stream_response, used_tool_calls, callable_tools)  # type: ignore[assignment, arg-type]
 
-                # 4. Yield new messages and collect message for next turn.
-                step_message_cache = None
-                for step_message, repeated_tool_call in step_output:
-                    # 4.1. yield new messages.
-                    disable_tool_calls = disable_tool_calls or repeated_tool_call
-                    is_intermediate = step_message.tool_calls or step_message.role == Role.TOOL
-                    if self.return_intermediate_steps or not is_intermediate:
-                        yield step_message
+            # 4. Yield new messages and collect message for next turn.
+            step_message_cache = None
+            for step_message, repeated_tool_call in step_output:
+                # 4.1. yield new messages.
+                disable_tool_calls = disable_tool_calls or repeated_tool_call
+                is_intermediate = step_message.tool_calls or step_message.role == Role.TOOL
 
-                    # 4.2. collect next turn messages.
-                    if isinstance(step_message, ChatMessageChunk):
-                        # Thought or final answer, no need to add to messages.
-                        step_message_cache = add(step_message_cache, step_message)
-                    else:  # tool calls or observations
-                        if step_message_cache:
-                            assert step_message.tool_calls, \
-                                "The first ChatMessage after ChatMessageChunk must have tool_calls."
-                            # step_message_cache is thoughts, not final answer, when we get tool_calls,
-                            # so add it to the tool_calls message.
-                            step_message = step_message.model_copy()
-                            step_message.content = (step_message.content or "") + (step_message_cache.content or "")
-                            step_message_cache = None
-                        messages.append(step_message)
-                    has_observation = has_observation or step_message.tool_calls is not None
+                # Check if tool return direct.
+                if step_message.tool_calls:
+                    return_direct = any(_is_tool_return_direct(tool_call.function.name, callable_tools)
+                                        for tool_call in step_message.tool_calls)
+                    if return_direct and len(step_message.tool_calls) != 1:
+                        raise RuntimeError("Tool return direct don't support parallel tool calls")
 
-                if run.token_usage:
-                    current_run().token_usage += run.token_usage  # type: ignore[operator]
+                if self.return_intermediate_steps or not is_intermediate or return_direct:
+                    yield step_message
+
+                # 4.2. collect next turn messages.
+                if isinstance(step_message, ChatMessageChunk):
+                    # Thought or final answer, no need to add to messages.
+                    step_message_cache = add(step_message_cache, step_message)
+                else:  # tool calls or observations
+                    if step_message_cache:
+                        assert step_message.tool_calls, \
+                            "The first ChatMessage after ChatMessageChunk must have tool_calls."
+                        # step_message_cache is thoughts, not final answer, when we get tool_calls,
+                        # so add it to the tool_calls message.
+                        step_message = step_message.model_copy()
+                        step_message.content = (step_message.content or "") + (step_message_cache.content or "")
+                        step_message_cache = None
+                    messages.append(step_message)
+                has_observation = has_observation or step_message.tool_calls is not None
 
             time_elapsed = time.time() - start_time
 
-        if has_observation:
+        if has_observation and not return_direct:
             content = (EXCEED_MAX_ITERATIONS.format(loop_count) if loop_count > self.max_iterations else
                        EXCEED_MAX_EXECUTION_TIME.format(time_elapsed))
             yield ChatMessage(role=Role.ASSISTANT, content=content)
@@ -209,7 +254,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
                          tools: List[Tool] | None
                          ) -> Iterator[Tuple[ChatMessageChunk | ChatMessage, bool]]:  # [, is repeated tool call]
         """Return ChatMessageChunk for streaming final answer or thoughts,
-         and return ChatMessage for tool calls and observation"""
+        and return ChatMessage for tool calls and observation"""
 
         chunk_message_cache: ChatMessageChunk | None = None
         for chunk_message in response_stream_message:
@@ -267,9 +312,13 @@ class Agent(Flow[LLMInput, ChatMessage]):
                 logger.error(f"Function call arguments json format error: {function_args}, {observation}, {e}")
                 return ChatMessage(role=Role.TOOL, tool_call_id=tool_call.id, content=observation), False
 
-        tool_response = self._tool_dispatcher(function_call.name, function_args, tools)
+        tool_response = _dispatch_tool_call(function_call.name, function_args, tools)
         logger.debug(f"Function Call observation: {tool_response}")
-        observation_msg = ChatMessage(role=Role.TOOL, tool_call_id=tool_call.id, content=tool_response)
+        observation_msg = ChatMessage(role=Role.TOOL, tool_call_id=tool_call.id)
+        if isinstance(tool_response, str):
+            observation_msg.content = tool_response
+        else:
+            observation_msg.extra_data = tool_response
 
         # If got the same function, then return disable tool calls.
         dumped_arguments = json.dumps(function_args, sort_keys=True)
@@ -277,16 +326,30 @@ class Agent(Flow[LLMInput, ChatMessage]):
         used_tool_calls[function_call.name].add(dumped_arguments)
         return observation_msg, repeated_tool_call
 
-    def _tool_dispatcher(self, function_name: str, function_args: dict, tools: List[Tool] | None) -> str:
-        for tool in tools or self.tools or getattr(self.llm, "tools", []):
-            if tool.name == function_name:
-                local_config = var_local_config.get()
-                func_flow: Flow = FunctionFlow(lambda inp: tool(**inp), name=tool.name)
-                if local_config:
-                    func_flow = func_flow.with_config(local_config)
-                return str(func_flow.invoke(function_args))
-
-        return f"Tool `{function_name}` not found. Please use a provided tool."
-
     def bin_tools(self, tools: List[ToolLike] | None = None, tool_choice: ToolChoice | None = None):
         return self.bind(tools=tools, tool_choice=tool_choice)
+
+
+def _dispatch_tool_call(function_name: str, function_args: dict, tools: List[Tool] | None) -> str | Flow:
+    for tool in tools or []:
+        if tool.name == function_name:
+            local_config = var_local_config.get()
+            if tool.return_direct:  # Only return direct support generator function.
+                if is_generator(tool.function):  # Support tool output of stream.
+                    def transformer(inp: Iterator) -> Iterator:
+                        yield from tool.function(**function_args)
+
+                    return GeneratorFlow(transformer).with_config(local_config)
+
+            func_flow: Flow = FunctionFlow(lambda inp: tool(**inp), name=tool.name).with_config(local_config)
+            output = func_flow.invoke(function_args)
+            return output if tool.return_direct else str(output)
+
+    return f"Tool `{function_name}` not found. Please use a provided tool."
+
+
+def _is_tool_return_direct(function_name: str, tools: List[Tool] | None):
+    for tool in tools or []:
+        if tool.name == function_name:
+            return tool.return_direct
+    return False

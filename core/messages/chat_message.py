@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal, Sequence, Any, TYPE_CHECKING
+from typing import Literal, Sequence, Any, TYPE_CHECKING, List
 
 from pydantic import BaseModel
+
+from core.utils.utils import add
 
 if TYPE_CHECKING:
     from core.prompts.message_list_template import MessageListTemplate
@@ -50,6 +52,7 @@ class ChatMessage(BaseModel):
     tool_calls: Sequence[ToolCall] | None = None  # for assistant
     tool_call_id: str | None = None  # for tool
     finish_reason: Literal["stop", "length", "tool_calls", "content_filter"] | str | None = None
+    extra_data: Any = None
 
     def __add__(self, other: Any) -> MessageListTemplate:
         from core.prompts.message_list_template import MessageListTemplate
@@ -78,6 +81,9 @@ class ToolCallChunk(BaseModel):
                              function=function,
                              type=self.type or other.type)
 
+    class Config:
+        extra = "forbid"
+
 
 class ChatMessageChunk(BaseModel):
     role: Role | None = None
@@ -85,26 +91,32 @@ class ChatMessageChunk(BaseModel):
     tool_calls: Sequence[ToolCallChunk] | None = None  # for assistant
     tool_call_id: str | None = None  # for tool
     finish_reason: Literal["stop", "length", "tool_calls"] | str | None = None
+    extra_data: Any = None
 
     def __add__(self, other: ChatMessageChunk) -> ChatMessageChunk:
         content: str | None = None
         if self.content is not None or other.content is not None:
             content = (self.content or "") + (other.content or "")
-        tool_calls = [tool_call.model_copy(deep=True) for tool_call in (self.tool_calls or [])]
+        tool_calls: List[ToolCallChunk] = list(self.tool_calls or [])
         for other_tool_call in other.tool_calls or []:
             if other_tool_call.index >= len(tool_calls):
                 assert other_tool_call.index == len(tool_calls)
-                tool_calls.append(other_tool_call)
+                tool_calls.append(other_tool_call.model_copy(deep=True))
             else:
                 tool_calls[other_tool_call.index] += other_tool_call
+
         return ChatMessageChunk(role=self.role or other.role,
                                 content=content,
                                 tool_calls=tool_calls,
                                 tool_call_id=self.tool_call_id or other.tool_call_id,
-                                finish_reason=self.finish_reason or other.finish_reason)
+                                finish_reason=self.finish_reason or other.finish_reason,
+                                extra_data=add(self.extra_data, other.extra_data))
 
     def to_message(self) -> ChatMessage:
         message_dump = self.model_dump()
         for tool_call in message_dump.get("tool_calls") or []:
             tool_call.pop("index")
         return ChatMessage(**message_dump)
+
+    class Config:
+        extra = "forbid"

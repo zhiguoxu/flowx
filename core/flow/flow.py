@@ -185,7 +185,10 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
     def with_config(self,
                     config: FlowConfig | None = None,
                     inheritable: bool = False,
-                    **kwargs: Any) -> BindingFlow[Input, Output]:
+                    **kwargs: Any) -> Flow[Input, Output]:
+        if not config and not kwargs:
+            return self
+
         config = (config or FlowConfig()).merge(kwargs)
         if inheritable:
             return BindingFlow(self, config=config)
@@ -195,7 +198,7 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
     def configurable_fields(self, **kwargs: str | ConfigurableField) -> BindingFlow[Input, Output]:
         return BindingFlow(self, fields=kwargs)
 
-    def with_configurable(self, **kwargs: Any) -> BindingFlow[Input, Output]:
+    def with_configurable(self, **kwargs: Any) -> Flow[Input, Output]:
         return self.with_config(configurable=kwargs, inheritable=True)
 
     def with_retry(self, *,
@@ -220,7 +223,7 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
     def with_listeners(self,
                        on_start: Callable[[Run], None] | None = None,
                        on_end: Callable[[Run], None] | None = None,
-                       on_error: Callable[[Run], None] | None = None) -> BindingFlow[Input, Output]:
+                       on_error: Callable[[Run], None] | None = None) -> Flow[Input, Output]:
         return self.with_config(callbacks=[ListenersCallback(on_start=on_start, on_end=on_end, on_error=on_error)])
 
     @contextmanager
@@ -379,8 +382,8 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
 class GeneratorFlow(Flow[Input, Output]):
     """Like FunctionFlow, but inner func accept Iterator"""
 
-    generator: Callable[..., Iterator[Output]] | None = None
-    a_generator: Callable[..., AsyncIterator[Output]] | None = None
+    generator: Callable[[Iterator[Input]], Iterator[Output]] | None = None
+    a_generator: Callable[[AsyncIterator[Input]], AsyncIterator[Output]] | None = None
 
     def __init__(self,
                  generator: Union[
@@ -403,21 +406,24 @@ class GeneratorFlow(Flow[Input, Output]):
         kwargs = filter_kwargs_by_pydantic(GeneratorFlow, locals())
         super().__init__(**kwargs)
 
-    def invoke(self, inp: Input, **kwargs: Any) -> Output:
-        return merge_iterator(self.transform(iter([inp]), **kwargs))
+    @trace
+    def invoke(self, inp: Input) -> Output:
+        assert self.generator
+        return merge_iterator(self.generator(iter([inp])))
 
     @trace
-    def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
+    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
         # todo support self.a_transform
         assert self.generator
-        yield from self.generator(inp, **kwargs)
+        yield from self.generator(inp)
 
 
 class BindingFlowBase(Flow[Input, Output], ABC):
     bound: Flowable[Input, Output]
 
     def invoke(self, inp: Input) -> Output:
-        # Transmit the local_config.
+        # Transmit the local_config (share it with bound),
+        # the local config may be set by its caller by caller.invoke(inp, local_config).
         return self.bound.invoke(inp, var_local_config.get())
 
     def stream(self, inp: Input) -> Iterator[Output]:

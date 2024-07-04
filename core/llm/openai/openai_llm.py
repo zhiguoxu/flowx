@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, cast
 
 from openai import OpenAI
 from openai.types import ChatModel
@@ -9,6 +9,7 @@ from core.llm.openai.utils import chat_result_from_openai, to_openai_message, to
     tool_choice_to_openai
 from core.messages.chat_message import ChatMessage, Role
 from core.messages.utils import remove_extra_info
+from core.tool import Tool
 from core.utils.utils import filter_kwargs_by_method
 
 
@@ -69,6 +70,9 @@ class OpenAILLM(LLM):
         if tool_choice := kwargs.pop("tool_choice", None) is not None:
             kwargs["tool_choice"] = tool_choice_to_openai(tool_choice, tools)
 
+        # If return direct, parallel tool calls is now allowed.
+        if any(tool.return_direct for tool in (cast(List[Tool], tools))):
+            kwargs["parallel_tool_calls"] = False
         return filter_kwargs_by_method(OpenAI().chat.completions.create, kwargs, exclude_none=True)
 
     @property

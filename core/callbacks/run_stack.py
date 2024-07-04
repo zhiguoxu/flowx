@@ -29,6 +29,11 @@ class RunStack(BaseModel):
             return self.stack[-1]
         raise RunStackException("peek from empty stack")
 
+    def peek_parent(self) -> Run | None:
+        if len(self.stack) < 2:
+            return None
+        return self.stack[-2]
+
     def size(self) -> int:
         return len(self.stack)
 
@@ -63,6 +68,11 @@ def current_run_list() -> List[Run]:
 def current_run() -> Run:
     assert ENABLE_TRACE, "Please enable trace by set env 'FLOW_ENABLE_TRACE' and use @trace!"
     return var_run_stack.get().peek()
+
+
+def parent_run() -> Run | None:
+    assert ENABLE_TRACE, "Please enable trace by set env 'FLOW_ENABLE_TRACE' and use @trace!"
+    return var_run_stack.get().peek_parent()
 
 
 def current_flow() -> Flow:

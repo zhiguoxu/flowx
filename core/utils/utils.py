@@ -158,7 +158,7 @@ def is_async_generator(func: Any) -> TypeGuard[Callable[..., AsyncIterator]]:
 
 def is_pydantic_class(obj: Any) -> bool:
     return isinstance(obj, type) and (
-        issubclass(obj, BaseModel) or BaseModel in obj.__bases__
+            issubclass(obj, BaseModel) or BaseModel in obj.__bases__
     )
 
 
@@ -169,9 +169,9 @@ def accepts_input_var(func: Callable[..., Any], name: str) -> bool:
         return False
 
 
-def accepts_any_kwargs(func: Callable[..., Any]):
+def accepts_any_kwargs(func: Callable[..., Any]) -> bool:
     arg_spec = inspect.getfullargspec(func)
-    return arg_spec.varkw and arg_spec.annotations.get(arg_spec.varkw, Any) in (Any, "Any")
+    return arg_spec.varkw is not None and arg_spec.annotations.get(arg_spec.varkw, Any) in (Any, "Any")
 
 
 def env_is_set(env_var: str, default: bool | None = None) -> bool:
@@ -201,6 +201,6 @@ AddableT = TypeVar("AddableT")
 
 
 def add(a: AddableT, b: AddableT) -> AddableT:
-    if a is None:
-        return b
+    if a is None or b is None:
+        return a or b
     return a + b  # type: ignore[operator]
