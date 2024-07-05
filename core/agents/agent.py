@@ -326,9 +326,6 @@ class Agent(Flow[LLMInput, ChatMessage]):
         used_tool_calls[function_call.name].add(dumped_arguments)
         return observation_msg, repeated_tool_call
 
-    def bin_tools(self, tools: List[ToolLike] | None = None, tool_choice: ToolChoice | None = None):
-        return self.bind(tools=tools, tool_choice=tool_choice)
-
 
 def _dispatch_tool_call(function_name: str, function_args: dict, tools: List[Tool] | None) -> str | Flow:
     for tool in tools or []:

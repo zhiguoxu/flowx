@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import wait, FIRST_COMPLETED
 from contextlib import contextmanager
 from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awaitable, AsyncIterator, Union, \
-    List, Dict, Type, Tuple
+    List, Dict, Type, Tuple, TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator, model_validator, GetCoreSchemaHandler
 from pydantic_core import core_schema
@@ -22,13 +22,17 @@ from core.flow.utils import recurse_flow, ConfigurableField
 from core.logging import get_logger
 from core.utils.iter import safe_tee, merge_iterator
 from core.utils.utils import filter_kwargs_by_pydantic, is_generator, is_async_generator, \
-    filter_kwargs_by_init_or_pydantic, to_pydantic_obj_with_init, NOT_GIVEN
+    filter_kwargs_by_init_or_pydantic, to_pydantic_obj_with_init, NOT_GIVEN, NotGiven
 
 Input = TypeVar("Input", contravariant=True)
 Output = TypeVar("Output", covariant=True)
 Other = TypeVar("Other")
 
 logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from core.tool import ToolLike
+    from core.llm.llm import ToolChoice
 
 
 def empty_flow_context(arg: Callable[..., Output]) -> Callable[..., Output]:
@@ -74,6 +78,10 @@ class Flowable(Generic[Input, Output], ABC):
 
     @abstractmethod
     def bind(self, **kwargs: Any) -> Flowable[Input, Output]:
+        ...
+
+    @abstractmethod
+    def bind_tools(self, tools: List[ToolLike], tool_choice: ToolChoice | None | NotGiven = NOT_GIVEN):
         ...
 
     @abstractmethod
@@ -181,6 +189,13 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
 
     def bind(self, **kwargs: Any) -> BindingFlow[Input, Output]:
         return BindingFlow(bound=self, kwargs=kwargs)
+
+    def bind_tools(self, tools: List[ToolLike], tool_choice: ToolChoice | None | NotGiven = NOT_GIVEN):
+        from core.tool import to_tool
+        kwargs = dict(tools=[to_tool(tool) for tool in tools])
+        if tool_choice is not NOT_GIVEN:
+            kwargs["tool_choice"] = tool_choice  # type: ignore[assignment]
+        return self.bind(**kwargs)
 
     def with_config(self,
                     config: FlowConfig | None = None,

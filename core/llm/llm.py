@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any, Callable, TYPE_CHECKING
+from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any, Callable, TYPE_CHECKING, Dict
 
 from pydantic import Field, BaseModel, field_validator
+from pydantic.main import Model
 
 from core.callbacks.chat_history import BaseChatMessageHistory
 from core.callbacks.run_stack import current_run
 from core.callbacks.trace import trace, ENABLE_TRACE
 from core.flow.flow import Flow
 from core.flow.utils import ConfigurableField
+from core.llm.json_format_prompt import JSON_FORMAT_PROMPT_WITH_SCHEMA
+from core.llm.message_parser import MessagePydanticParser
 from core.llm.types import TokenUsage
-from core.messages.chat_message import ChatMessage, ChatMessageChunk
+from core.logging import get_logger
+from core.messages.chat_message import ChatMessage, ChatMessageChunk, Role
 from core.messages.utils import to_chat_message, MessageLike
 from core.prompts.message_list_template import MessageListTemplate, MessagesPlaceholder
 from core.tool import Tool, to_tool, ToolLike
@@ -23,6 +27,8 @@ if TYPE_CHECKING:
 LLMInput = Union[MessageLike, Sequence[MessageLike]]
 ToolChoiceLiteral = Literal["none", "auto", "required", "any"]
 ToolChoice = str | ToolChoiceLiteral | bool
+
+logger = get_logger(__name__)
 
 
 class LLM(Flow[LLMInput, ChatMessage]):
@@ -45,8 +51,14 @@ class LLM(Flow[LLMInput, ChatMessage]):
 
     n: int = Field(default=1, description="How many chat completion choices to generate for each input message.")
 
+    system_prompt: str | None = None
+
     tools: List[Tool] | None = None
     tool_choice: ToolChoice | None = None
+
+    parallel_tool_calls: bool | None = None
+
+    json_mode: bool = False
 
     @field_validator('tools')
     @classmethod
@@ -79,8 +91,19 @@ class LLM(Flow[LLMInput, ChatMessage]):
     def stream_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         ...
 
-    def bin_tools(self, tools: List[ToolLike] | None = None, tool_choice: ToolChoice | None = None):
-        return self.bind(tools=tools, tool_choice=tool_choice)
+    def try_add_system_message(self, messages: List[ChatMessage]) -> List[ChatMessage]:
+        system_prompt = self.system_prompt
+        if system_prompt is None:
+            return messages
+
+        if messages[0].role == "system":
+            assert messages[0].content is not None
+            logger.warning(f"System prompt merge: {messages[0].content}, {system_prompt}")
+            if messages[0].content.find("system_prompt") == 0:
+                messages[0].content += "." + system_prompt
+            return messages
+
+        return [ChatMessage(role=Role.SYSTEM, content=system_prompt)] + list(messages)
 
     def with_history(self,
                      get_session_history: Callable[..., BaseChatMessageHistory],
@@ -94,6 +117,32 @@ class LLM(Flow[LLMInput, ChatMessage]):
         bound = prompt | self
         kwargs = filter_kwargs_by_init_or_pydantic(LLMWithHistory, locals(), exclude_none=True)
         return LLMWithHistory(**kwargs)
+
+    def with_structured_output(self,
+                               schema: ToolLike, *,
+                               method: Literal["function_calling", "json_mode"] = "function_calling",
+                               return_type: Literal["pydantic", "dict"] = "pydantic",
+                               include_raw: bool = False
+                               ) -> Flow[LLMInput, Model | Dict[str, Any]]:
+        tool = to_tool(schema)
+        if method == "function_calling":
+            llm = self.bind_tools([tool], tool_choice=tool.name).bind(parallel_tool_calls=False)
+        elif method == "json_mode":
+            system_prompt = JSON_FORMAT_PROMPT_WITH_SCHEMA.format(schema=tool.args_schema.model_json_schema())
+            llm = (self.configurable_fields(system_prompt="system_prompt")
+                   .with_configurable(system_prompt=system_prompt)
+                   .bind(json_mode=True))
+        else:
+            raise ValueError(f"Unrecognized method: {method}. Expected one of 'function_calling' or 'json_mode'")
+
+        message_parser = MessagePydanticParser(schemas=[tool.args_schema],
+                                               return_dict=return_type == "dict",
+                                               return_first=True)
+        if include_raw:
+            return llm | message_parser
+            # todo with fallback
+        else:
+            return llm | message_parser
 
     class Config:
         extra = "forbid"

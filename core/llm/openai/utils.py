@@ -101,7 +101,7 @@ def tools_to_openai(tools: List[Tool]) -> List[Dict[str, Any]]:
 
 def tool_choice_to_openai(tool_choice: ToolChoice, tools: List[Tool] | None = None):
     if isinstance(tool_choice, bool):
-        if not tool_choice:
+        if tool_choice:
             assert tools and len(tools) == 1
             return get_tool_choice_by_pydantic(tools[0].args_schema)
         else:

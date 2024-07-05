@@ -36,6 +36,10 @@ class Tool(BaseModel, Generic[ToolOutput]):
     def name(self):
         return self.args_schema.__name__
 
+    @property
+    def description(self):
+        return self.args_schema.__doc__
+
 
 def tool(*args: str | Callable[..., ToolOutput] | Flow[Any, ToolOutput],
          args_schema: Type[BaseModel] | None = None,
@@ -110,10 +114,7 @@ def to_tool(tool_like: ToolLike) -> Tool:
         return tool_like
 
     if callable(tool_like):
+        if is_pydantic_class(tool_like) and tool_like.__doc__ is None:
+            tool_like.__doc__ = f"{tool_like.__name__}'s init function."
+
         return cast(Tool, tool(tool_like))
-
-    if is_pydantic_class(tool_like):
-        def not_implemented(**kwargs):
-            raise NotImplemented
-
-        return Tool(args_schema=tool_like, function=not_implemented)

@@ -107,6 +107,8 @@ class LLMWithHistory(BindingFlowBase[Input, Output]):
         assert output
         if self.output_messages_key:
             output = output[self.output_messages_key]
+        assert isinstance(output, ChatMessage)
+
         history = self.get_history()
         inp = run.input
         # Extract the real input that is MessageLike.

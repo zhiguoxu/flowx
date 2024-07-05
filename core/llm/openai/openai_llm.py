@@ -7,7 +7,6 @@ from pydantic import Field
 from core.llm.llm import LLM, ChatResult, to_chat_messages, LLMInput
 from core.llm.openai.utils import chat_result_from_openai, to_openai_message, tool_to_openai, tools_to_openai, \
     tool_choice_to_openai
-from core.messages.chat_message import ChatMessage, Role
 from core.messages.utils import remove_extra_info
 from core.tool import Tool
 from core.utils.utils import filter_kwargs_by_method
@@ -19,7 +18,6 @@ class OpenAILLM(LLM):
     base_url: str | None = None
     max_retries: int = 2
     timeout: float = 20  # seconds
-    system_prompt: str | None = None
     stream_include_usage: bool = Field(
         default=True,
         description="If set, the token usage will return at the end of stream."
@@ -44,11 +42,6 @@ class OpenAILLM(LLM):
         resp = self.client.chat.completions.create(messages=openai_messages, **kwargs)
         return chat_result_from_openai(resp)
 
-    def try_add_system_message(self, messages: List[ChatMessage]) -> List[ChatMessage]:
-        if self.system_prompt is None or messages[0].role == "system":
-            return messages
-        return [ChatMessage(role=Role.SYSTEM, content=self.system_prompt)] + list(messages)
-
     def get_chat_kwargs(self, **kwargs: Any) -> Dict[str, Any]:
         kwargs = {**self.model_dump(exclude_none=True, by_alias=True), **kwargs}
 
@@ -60,19 +53,24 @@ class OpenAILLM(LLM):
         # but we can extend it to other models that support it
         # with openai interface compatible server by using 'extra_body'.
         if repetition_penalty := kwargs.pop("repetition_penalty", None):
-            kwargs["extra_body"] = dict(repetition_penalty=repetition_penalty)
+            kwargs["presence_penalty"] = repetition_penalty
+            kwargs["extra_body"] = dict(repetition_penalty=repetition_penalty)  # todo remove
 
         if kwargs.get("stream_include_usage"):
             kwargs["stream_options"] = dict(include_usage=True)
 
         if tools := kwargs.pop("tools", None):
             kwargs["tools"] = tools_to_openai(tools)
-        if tool_choice := kwargs.pop("tool_choice", None) is not None:
+
+            # If return direct, parallel tool calls is now allowed.
+            if any(tool.return_direct for tool in (cast(List[Tool], tools))):
+                kwargs["parallel_tool_calls"] = False
+        if (tool_choice := kwargs.pop("tool_choice", None)) is not None:
             kwargs["tool_choice"] = tool_choice_to_openai(tool_choice, tools)
 
-        # If return direct, parallel tool calls is now allowed.
-        if any(tool.return_direct for tool in (cast(List[Tool], tools))):
-            kwargs["parallel_tool_calls"] = False
+        if kwargs.pop("json_mode", False):
+            kwargs["response_format"] = {"type": "json_object"}
+
         return filter_kwargs_by_method(OpenAI().chat.completions.create, kwargs, exclude_none=True)
 
     @property
