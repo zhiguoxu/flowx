@@ -12,7 +12,7 @@ from core.callbacks.run_stack import current_run
 from core.callbacks.trace import trace, ENABLE_TRACE
 from core.flow.flow import Flow, identity, ParallelFlow
 from core.flow.utils import ConfigurableField
-from core.llm.json_format_prompt import JSON_FORMAT_PROMPT_WITH_SCHEMA
+from core.llm.json_format_prompt import get_json_format_prompt_by_schema
 from core.llm.message_parser import MessagePydanticOutParser
 from core.llm.types import TokenUsage
 from core.logging import get_logger
@@ -143,7 +143,7 @@ class LLM(Flow[LLMInput, ChatMessage]):
         if method == "function_calling":
             llm = self.bind_tools([tool], tool_choice=tool.name).bind(parallel_tool_calls=False)
         elif method == "json_mode":
-            system_prompt = JSON_FORMAT_PROMPT_WITH_SCHEMA.format(schema=tool.args_schema.model_json_schema())
+            system_prompt = get_json_format_prompt_by_schema(tool.args_schema)
             llm = (self.configurable_fields(system_prompt="system_prompt")
                    .with_configurable(system_prompt=system_prompt)
                    .bind(json_mode=True))
