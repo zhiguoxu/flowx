@@ -416,13 +416,13 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
 class GeneratorFlow(Flow[Input, Output]):
     """Like FunctionFlow, but inner func accept Iterator"""
 
-    generator: Callable[[Iterator[Input]], Iterator[Output]] | None = None
-    a_generator: Callable[[AsyncIterator[Input]], AsyncIterator[Output]] | None = None
+    generator: Callable[..., Iterator[Output]] | None = None
+    a_generator: Callable[..., AsyncIterator[Output]] | None = None
 
     def __init__(self,
                  generator: Union[
-                     Callable[[Iterator[Input]], Iterator[Output]],
-                     Callable[[AsyncIterator[Input]], AsyncIterator[Output]],
+                     Callable[..., Iterator[Output]],  # [Iterator[Input]]
+                     Callable[..., AsyncIterator[Output]],  # [AsyncIterator[Input]]
                  ]):
         try:
             name = generator.__name__
@@ -441,15 +441,15 @@ class GeneratorFlow(Flow[Input, Output]):
         super().__init__(**kwargs)
 
     @trace
-    def invoke(self, inp: Input) -> Output:
+    def invoke(self, inp: Input, **kwargs: Any) -> Output:
         assert self.generator
-        return merge_iterator(self.generator(iter([inp])))
+        return merge_iterator(self.generator(iter([inp]), **kwargs))
 
     @trace
-    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
+    def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
         # todo support self.a_transform
         assert self.generator
-        yield from self.generator(inp)
+        yield from self.generator(inp, **kwargs)
 
 
 class BindingFlowBase(Flow[Input, Output], ABC):

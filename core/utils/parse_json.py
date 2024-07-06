@@ -6,7 +6,7 @@ from typing import Dict, Any
 # and https://github.com/langchain-ai/langchain/blob/ee579c77c1691bdf6b39aef649e1570516917e28/libs/core/langchain_core/utils/json.py
 # MIT License
 
-def parse_partial_json(s: str, strict: bool = False) -> Dict[str, Any] | None:
+def parse_partial_json(s: str, strict: bool = False) -> Dict[str, Any]:
     """Parse a JSON string that may be missing closing braces."""
 
     # Attempt to parse the string as-is.
@@ -44,9 +44,7 @@ def parse_partial_json(s: str, strict: bool = False) -> Dict[str, Any] | None:
                 if stack and stack[-1] == char:
                     stack.pop()
                 else:
-                    # Mismatched closing character; the input is malformed.
-                    print("Failed 1")
-                    return None
+                    raise json.JSONDecodeError("Mismatched closing character", s, 0)
 
         # Append the processed character to the new string.
         new_s += char
@@ -67,9 +65,7 @@ def parse_partial_json(s: str, strict: bool = False) -> Dict[str, Any] | None:
 
         # Attempt to parse the modified string as JSON.
         try:
-            output = json.loads(final_s, strict=strict)
-            print(output)
-            return output
+            return json.loads(final_s, strict=strict)
         except json.JSONDecodeError:
             # If we still can't parse the string as JSON, try removing the last character
             for index in range(len(new_s) - 1, -1, -1):

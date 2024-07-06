@@ -1,11 +1,14 @@
 import json
+from json import JSONDecodeError
 from typing import Dict, Any, List, Type, Union, Iterator
 
+import jsonpatch  # type: ignore[import-untyped]
 from pydantic.main import BaseModel
 
 from core.flow.flow import Flow
 from core.messages.chat_message import ChatMessage, ChatMessageChunk
 from core.utils.parse_json import parse_partial_json
+from core.utils.utils import add
 
 Output = Union[BaseModel, List[BaseModel], Dict[str, Any], List[Dict[str, Any]]]
 
@@ -55,6 +58,24 @@ class MessagePydanticOutParser(Flow[ChatMessage, Output]):
                         objs.append(schema(**args_dict))  # type: ignore[arg-type]
         return objs[0] if self.return_first else objs
 
+    def transform(self, inp: Iterator[ChatMessageChunk]) -> Iterator[Dict[str, Any]]:  # type: ignore[override]
+        assert self.return_dict, "Message output transform parser only support dict output."
+        assert self.return_first, "Message output transform parser only support return first"
+
+        def get_str_stream() -> Iterator[str]:
+            for message_chunk in inp:
+                if not message_chunk.tool_calls:
+                    # parse message.content
+                    if message_chunk.content:
+                        yield message_chunk.content
+                else:
+                    # parse message.tool_calls
+                    for tool_call in message_chunk.tool_calls:
+                        if tool_call.function and tool_call.function.arguments:
+                            yield tool_call.function.arguments
+
+        yield from json_transform_parser(get_str_stream(), self.strict)
+
     def parse_json_str(self, json_str: str) -> Dict[str, Any]:
         if self.partial_parse:
             return parse_partial_json(json_str)
@@ -68,3 +89,26 @@ class MessageStrOutParser(Flow[ChatMessage, str]):
     def transform(self, inp: Iterator[ChatMessageChunk]) -> Iterator[str]:  # type: ignore[override]
         for chunk in inp:
             yield chunk.content or ""
+
+
+def json_transform_parser(inp: Iterator[str], strict: bool = False) -> Iterator[Dict[str, Any]]:
+    prev_parsed = None
+    acc = None
+    for chunk in inp:
+        acc = add(acc, chunk)
+        assert isinstance(acc, str)
+        if not acc.startswith("{"):
+            index = acc.find("{")
+            if index < 0:
+                continue
+            acc = acc[index:]
+        try:
+            obj, end = json.JSONDecoder(strict=strict).raw_decode(acc)
+            yield jsonpatch.make_patch(prev_parsed, obj).patch
+            acc = acc[end:]
+            prev_parsed = None
+        except JSONDecodeError as e:
+            parsed = parse_partial_json(acc, strict)
+            if parsed is not None and parsed != prev_parsed:
+                yield jsonpatch.make_patch(prev_parsed, parsed).patch
+            prev_parsed = parsed
