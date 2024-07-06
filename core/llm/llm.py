@@ -13,7 +13,7 @@ from core.callbacks.trace import trace, ENABLE_TRACE
 from core.flow.flow import Flow, identity, ParallelFlow
 from core.flow.utils import ConfigurableField
 from core.llm.json_format_prompt import JSON_FORMAT_PROMPT_WITH_SCHEMA
-from core.llm.message_parser import MessagePydanticParser
+from core.llm.message_parser import MessagePydanticOutParser
 from core.llm.types import TokenUsage
 from core.logging import get_logger
 from core.messages.chat_message import ChatMessage, ChatMessageChunk, Role
@@ -150,9 +150,9 @@ class LLM(Flow[LLMInput, ChatMessage]):
         else:
             raise ValueError(f"Unrecognized method: {method}. Expected one of 'function_calling' or 'json_mode'")
 
-        message_parser = MessagePydanticParser(schemas=[tool.args_schema],
-                                               return_dict=return_type == "dict",
-                                               return_first=True)
+        message_parser = MessagePydanticOutParser(schemas=[tool.args_schema],
+                                                  return_dict=return_type == "dict",
+                                                  return_first=True)
         if include_raw:  # return dict with keys "raw", "parsed", and "parsing_error"
             base_parser = identity.assign(parsed=itemgetter("raw") | message_parser, parsing_error=None)
             none_parser = identity.assign(parsed=None)

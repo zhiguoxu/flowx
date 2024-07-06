@@ -1,15 +1,16 @@
 import json
-from typing import Dict, Any, List, Type, Union
+from typing import Dict, Any, List, Type, Union, Iterator
 
 from pydantic.main import BaseModel
 
 from core.flow.flow import Flow
-from core.messages.chat_message import ChatMessage
+from core.messages.chat_message import ChatMessage, ChatMessageChunk
+from core.utils.parse_json import parse_partial_json
 
 Output = Union[BaseModel, List[BaseModel], Dict[str, Any], List[Dict[str, Any]]]
 
 
-class MessagePydanticParser(Flow[ChatMessage, Output]):
+class MessagePydanticOutParser(Flow[ChatMessage, Output]):
     schemas: List[Type[BaseModel]]
     """A pydantic class describe the output data schema"""
 
@@ -55,5 +56,15 @@ class MessagePydanticParser(Flow[ChatMessage, Output]):
         return objs[0] if self.return_first else objs
 
     def parse_json_str(self, json_str: str) -> Dict[str, Any]:
-        # todo partial_parse
+        if self.partial_parse:
+            return parse_partial_json(json_str)
         return json.loads(json_str, strict=self.strict)
+
+
+class MessageStrOutParser(Flow[ChatMessage, str]):
+    def invoke(self, inp: ChatMessage) -> str:
+        return inp.content or ""
+
+    def transform(self, inp: Iterator[ChatMessageChunk]) -> Iterator[str]:  # type: ignore[override]
+        for chunk in inp:
+            yield chunk.content or ""
