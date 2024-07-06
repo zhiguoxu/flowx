@@ -19,7 +19,7 @@ from core.messages.chat_message import ChatMessage, ChatMessageChunk, Role
 from core.messages.utils import to_chat_message, MessageLike
 from core.prompts.message_list_template import MessageListTemplate, MessagesPlaceholder
 from core.tool import Tool, to_tool, ToolLike
-from core.utils.utils import filter_kwargs_by_init_or_pydantic, add
+from core.utils.utils import add, filter_kwargs_by_pydantic
 
 if TYPE_CHECKING:
     from core.llm.llm_with_history import LLMWithHistory
@@ -115,7 +115,7 @@ class LLM(Flow[LLMInput, ChatMessage]):
         ])
 
         bound = prompt | self
-        kwargs = filter_kwargs_by_init_or_pydantic(LLMWithHistory, locals(), exclude_none=True)
+        kwargs = filter_kwargs_by_pydantic(LLMWithHistory, locals(), exclude_none=True)
         return LLMWithHistory(**kwargs)
 
     def with_structured_output(self,

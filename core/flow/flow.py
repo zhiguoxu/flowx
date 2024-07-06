@@ -5,11 +5,10 @@ from abc import ABC, abstractmethod
 from concurrent.futures import wait, FIRST_COMPLETED
 from contextlib import contextmanager
 from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awaitable, AsyncIterator, Union, \
-    List, Dict, Type, Tuple, TYPE_CHECKING
+    List, Dict, Type, Tuple, TYPE_CHECKING, Sequence
 
-from pydantic import BaseModel, Field, field_validator, model_validator, GetCoreSchemaHandler
+from pydantic import BaseModel, Field, model_validator, GetCoreSchemaHandler
 from pydantic_core import core_schema
-from tenacity import stop_after_attempt, wait_exponential_jitter, retry_if_exception_type, Retrying
 from typing_extensions import Self
 
 from core.callbacks.listeners_callback import ListenersCallback
@@ -21,8 +20,8 @@ from core.flow.config import FlowConfig, get_cur_config, var_local_config
 from core.flow.utils import recurse_flow, ConfigurableField
 from core.logging import get_logger
 from core.utils.iter import safe_tee, merge_iterator
-from core.utils.utils import filter_kwargs_by_pydantic, is_generator, is_async_generator, \
-    filter_kwargs_by_init_or_pydantic, to_pydantic_obj_with_init, NOT_GIVEN, NotGiven
+from core.utils.utils import filter_kwargs_by_pydantic, is_generator, is_async_generator, to_pydantic_obj_with_init, \
+    NOT_GIVEN, NotGiven
 
 Input = TypeVar("Input", contravariant=True)
 Output = TypeVar("Output", covariant=True)
@@ -33,6 +32,8 @@ logger = get_logger(__name__)
 if TYPE_CHECKING:
     from core.tool import ToolLike
     from core.llm.llm import ToolChoice
+    from core.flow.retry_flow import RetryFlow
+    from core.flow.flow_with_fallbacks import FlowWithFallbacks
 
 
 def empty_flow_context(arg: Callable[..., Output]) -> Callable[..., Output]:
@@ -105,7 +106,15 @@ class Flowable(Generic[Input, Output], ABC):
                    retry_if_exception_type: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception,
                    wait_exponential_jitter: bool = True,
                    max_attempt: int = 3) -> Flowable[Input, Output]:
-        ...
+        """Add retry config to a flow."""
+
+    @abstractmethod
+    def with_fallbacks(self,
+                       fallbacks: Sequence[Flow[Input, Output]], *,
+                       exceptions_to_handle: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception,
+                       exception_key: str | None = None,
+                       ) -> FlowWithFallbacks[Input, Output]:
+        """Add fallbacks to a flow."""
 
     @abstractmethod
     def pick(self, keys: List[str]) -> Flowable[Input, Dict[str, Any]]:
@@ -221,8 +230,18 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
                    wait_exponential_jitter: bool = True,
                    max_attempt: int = 3
                    ) -> RetryFlow[Input, Output]:
-        kwargs = filter_kwargs_by_init_or_pydantic(RetryFlow, locals())
+        from core.flow.retry_flow import RetryFlow
+        kwargs = filter_kwargs_by_pydantic(RetryFlow, locals())
         return RetryFlow(bound=self, **kwargs)
+
+    def with_fallbacks(self,
+                       fallbacks: Sequence[Flow[Input, Output]], *,
+                       exceptions_to_handle: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception,
+                       exception_key: str | None = None,
+                       ) -> FlowWithFallbacks[Input, Output]:
+        from core.flow.flow_with_fallbacks import FlowWithFallbacks
+        kwargs = filter_kwargs_by_pydantic(FlowWithFallbacks, locals())
+        return FlowWithFallbacks(bound=self, **kwargs)
 
     def pick(self, keys: str | List[str]) -> SequenceFlow[Input, Dict[str, Any]]:
         keys = [keys] if isinstance(keys, str) else keys
@@ -542,58 +561,6 @@ class BindingFlow(BindingFlowBase[Input, Output]):
             return self.kwargs[name]
 
         return getattr(self.bound, name)
-
-
-class RetryFlow(BindingFlowBase[Input, Output]):
-    retry_if_exception_type: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception
-    """Retries if an exception has been raised of one or more types."""
-
-    wait_exponential_jitter: bool = True
-    """Whether to use wait strategy that applies exponential backoff and jitter."""
-
-    max_attempt: int = 3
-    """Stop when the previous attempt >= max_attempt."""
-
-    @field_validator('bound')  # The decorator's order is important here!
-    @classmethod
-    def validate_bound(cls, bound: Flowable[Input, Output]) -> Flowable:
-        if isinstance(bound, cls):
-            bound = bound.bound
-        return bound
-
-    @property
-    def retrying_kwargs(self) -> Dict[str, Any]:
-        kwargs: Dict[str, Any] = dict(reraise=True)
-        if self.max_attempt:
-            kwargs["stop"] = stop_after_attempt(self.max_attempt)
-        if self.wait_exponential_jitter:
-            kwargs["wait"] = wait_exponential_jitter()
-        if self.retry_if_exception_type:
-            kwargs["retry"] = retry_if_exception_type(self.retry_if_exception_type)
-
-        return kwargs
-
-    def invoke(self, inp: Input, **kwargs: Any) -> Output:
-        for attempt in Retrying(**self.retrying_kwargs):
-            with attempt:
-                attempt_number = attempt.retry_state.attempt_number
-                local_config = var_local_config.get()
-                if attempt_number > 1:
-                    retry_config = {"tags": [f"retry:attempt:{attempt_number}"]}
-                    if local_config:
-                        local_config = local_config.merge(retry_config)
-                    else:
-                        local_config = FlowConfig(**retry_config)  # type: ignore[arg-type]
-                result = self.bound.invoke(inp, local_config, **kwargs)
-        return result
-
-    def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
-        logger.warning("RetryFlow doesn't work in stream.")
-        yield from self.bound.stream(inp, var_local_config.get(), **kwargs)
-
-    def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
-        logger.warning("RetryFlow doesn't work in transform.")
-        yield from self.bound.transform(inp, var_local_config.get(), **kwargs)
 
 
 class PickFlow(Flow[Dict[str, Any], Dict[str, Any]]):
