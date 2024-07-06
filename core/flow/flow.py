@@ -32,8 +32,8 @@ logger = get_logger(__name__)
 if TYPE_CHECKING:
     from core.tool import ToolLike
     from core.llm.llm import ToolChoice
-    from core.flow.retry_flow import RetryFlow
-    from core.flow.flow_with_fallbacks import FlowWithFallbacks
+    from core.flow.retry import RetryFlow
+    from core.flow.fallbacks import FlowWithFallbacks
 
 
 def empty_flow_context(arg: Callable[..., Output]) -> Callable[..., Output]:
@@ -230,7 +230,7 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
                    wait_exponential_jitter: bool = True,
                    max_attempt: int = 3
                    ) -> RetryFlow[Input, Output]:
-        from core.flow.retry_flow import RetryFlow
+        from core.flow.retry import RetryFlow
         kwargs = filter_kwargs_by_pydantic(RetryFlow, locals())
         return RetryFlow(bound=self, **kwargs)
 
@@ -239,7 +239,7 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
                        exceptions_to_handle: Type[BaseException] | Tuple[Type[BaseException], ...] = Exception,
                        exception_key: str | None = None,
                        ) -> FlowWithFallbacks[Input, Output]:
-        from core.flow.flow_with_fallbacks import FlowWithFallbacks
+        from core.flow.fallbacks import FlowWithFallbacks
         kwargs = filter_kwargs_by_pydantic(FlowWithFallbacks, locals())
         return FlowWithFallbacks(bound=self, **kwargs)
 
@@ -279,7 +279,7 @@ class FunctionFlow(Flow[Input, Output]):
                      Callable[[Input], Iterator[Output]]
                  ],
                  name: str | None = None):
-        if not name and func.__name__ != "<lambda>":
+        if not name and hasattr(func, "__name__") and func.__name__ != "<lambda>":
             name = func.__name__
         super(Flow, self).__init__(func=func, name=name)
 
@@ -609,7 +609,12 @@ FlowLike_ = Union[
     Callable[[AsyncIterator[Input]], AsyncIterator[Output]]
 ]
 
-FlowLike = Union[FlowLike_[Input, Output], Mapping[str, FlowLike_[Input, Output]], Callable[..., Output]]
+FlowLike = Union[
+    FlowLike_[Input, Output],
+    Mapping[str, FlowLike_[Input, Output]],
+    Callable[..., Output],
+    None, int, str, float
+]
 
 
 def to_flow(flow_like: FlowLike[Input, Output]) -> Flow[Input, Output]:
@@ -621,5 +626,7 @@ def to_flow(flow_like: FlowLike[Input, Output]) -> Flow[Input, Output]:
         return FunctionFlow(func=cast(Callable[[Input], Output], flow_like))
     elif isinstance(flow_like, dict):
         return cast(Flow[Input, Output], ParallelFlow(flow_like))
+    elif flow_like is None or isinstance(flow_like, (int, str, float)):
+        return FixOutputFlow(output=flow_like)  # type: ignore[arg-type]
     else:
         raise TypeError(f"to_flow got an unsupported type: {type(flow_like)}")

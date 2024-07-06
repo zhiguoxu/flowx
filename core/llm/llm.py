@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+from operator import itemgetter
 from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any, Callable, TYPE_CHECKING, Dict
 
 from pydantic import Field, BaseModel, field_validator
@@ -9,7 +10,7 @@ from pydantic.main import Model
 from core.callbacks.chat_history import BaseChatMessageHistory
 from core.callbacks.run_stack import current_run
 from core.callbacks.trace import trace, ENABLE_TRACE
-from core.flow.flow import Flow
+from core.flow.flow import Flow, identity, ParallelFlow
 from core.flow.utils import ConfigurableField
 from core.llm.json_format_prompt import JSON_FORMAT_PROMPT_WITH_SCHEMA
 from core.llm.message_parser import MessagePydanticParser
@@ -124,6 +125,20 @@ class LLM(Flow[LLMInput, ChatMessage]):
                                return_type: Literal["pydantic", "dict"] = "pydantic",
                                include_raw: bool = False
                                ) -> Flow[LLMInput, Model | Dict[str, Any]]:
+        """Model wrapper for returning outputs in a specified schema.
+        Args:
+            schema: The desired output schema, ToolLike that will be converted to Pydantic class.
+            method: The method for output formatting, either "function_calling" or "json_mode".
+                - "function_calling": Converts the schema to model's function and uses the function-calling API.
+                - "json_mode": Uses model's JSON mode and requires formatting instructions in the model call.
+            return_type: Specify the output type of "pydantic" of "dict" for the input schema.
+            include_raw:
+                - If False, only returns the parsed output, raising any parsing errors directly.
+                - If True, The final output is always a dict with keys "raw", "parsed", and "parsing_error".
+                if no parsing error occurs, returns both the raw and parsed model responses,
+                or else error be caught and returned under the key 'parsing_error'.
+        """
+
         tool = to_tool(schema)
         if method == "function_calling":
             llm = self.bind_tools([tool], tool_choice=tool.name).bind(parallel_tool_calls=False)
@@ -138,9 +153,11 @@ class LLM(Flow[LLMInput, ChatMessage]):
         message_parser = MessagePydanticParser(schemas=[tool.args_schema],
                                                return_dict=return_type == "dict",
                                                return_first=True)
-        if include_raw:
-            return llm | message_parser
-            # todo with fallback
+        if include_raw:  # return dict with keys "raw", "parsed", and "parsing_error"
+            base_parser = identity.assign(parsed=itemgetter("raw") | message_parser, parsing_error=None)
+            none_parser = identity.assign(parsed=None)
+            parser_with_fallback = base_parser.with_fallbacks([none_parser], exception_key="parsing_error")
+            return ParallelFlow(raw=llm) | parser_with_fallback  # type: ignore[return-value]
         else:
             return llm | message_parser
 
