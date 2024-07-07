@@ -51,19 +51,19 @@ class LLMWithHistory(BindingFlowBase[Input, Output]):
             history_flow = start_flow.assign(**{self.history_messages_key: history_flow})
         elif self.input_messages_key:
             # replace input[input_messages_key] = history messages + input[input_messages_key]
-            def get_input_messages(inp: Dict[str, Any]) -> List[ChatMessage]:
+            def get_input_messages_by_key(inp: Dict[str, Any]) -> List[ChatMessage]:
                 assert self.input_messages_key is not None
                 input_message = to_chat_message(inp[self.input_messages_key])
                 history_messages = self.get_history().get_messages()
                 return history_messages + [input_message]
 
-            history_flow = start_flow.assign(**{self.input_messages_key: get_input_messages})
+            history_flow = start_flow.assign(**{self.input_messages_key: get_input_messages_by_key})
         else:
             # If no history_messages_key and no input_messages_key, the input must be MessageLike.
-            def get_input_message(inp: MessageLike):
+            def get_input_messages(inp: MessageLike) -> List[ChatMessage]:
                 return self.get_history().get_messages() + [to_chat_message(inp)]
 
-            history_flow = to_flow(get_input_message)
+            history_flow = to_flow(get_input_messages)
         self.bound = (history_flow | self.bound).with_listeners(on_end=self.save_history)
 
         return self

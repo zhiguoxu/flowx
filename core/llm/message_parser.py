@@ -88,7 +88,8 @@ class MessageStrOutParser(Flow[ChatMessage, str]):
 
     def transform(self, inp: Iterator[ChatMessageChunk]) -> Iterator[str]:  # type: ignore[override]
         for chunk in inp:
-            yield chunk.content or ""
+            if chunk.content:
+                yield chunk.content
 
 
 def json_transform_parser(inp: Iterator[str], strict: bool = False) -> Iterator[Dict[str, Any]]:

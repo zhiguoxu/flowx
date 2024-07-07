@@ -258,17 +258,14 @@ class Agent(Flow[LLMInput, ChatMessage]):
 
         chunk_message_cache: ChatMessageChunk | None = None
         for chunk_message in response_stream_message:
-            tool_calls = chunk_message.tool_calls
-            if not tool_calls:
-                # Yield streaming content of final answer or thoughts.
-                if chunk_message.content:
-                    yield chunk_message, False
-                    logger.debug(f"Final answer(thoughts) chunk: {chunk_message.content}")
-            else:
-                # Collect tool calls request message.
-                chunk_message_cache = add(chunk_message_cache, chunk_message)
+            # Yield streaming content of final answer or thoughts.
+            if chunk_message.content:
+                yield chunk_message, False
+                logger.debug(f"Final answer(thoughts) chunk: {chunk_message.content}")
+            # Collect tool calls request message.
+            chunk_message_cache = add(chunk_message_cache, chunk_message)
 
-        if chunk_message_cache:
+        if chunk_message_cache and chunk_message_cache.tool_calls:
             # Yield tool calls request message.
             message = chunk_message_cache.to_message()
             yield message, False

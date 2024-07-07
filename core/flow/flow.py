@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awaitable, AsyncIterator, Union, \
     List, Dict, Type, Tuple, TYPE_CHECKING, Sequence
 
-from pydantic import BaseModel, Field, model_validator, GetCoreSchemaHandler
+from pydantic import BaseModel, Field, model_validator, GetCoreSchemaHandler, field_validator
 from pydantic_core import core_schema
 from typing_extensions import Self
 
@@ -321,21 +321,22 @@ class FunctionFlow(Flow[Input, Output]):
 class SequenceFlow(Flow[Input, Output]):
     steps: List[Flowable]
 
-    def __init__(self, *steps: FlowLike[Any, Any], **kwargs: Any):
+    def __init__(self, *steps: FlowLike[Any, Any], name: str | None = None):
         flow_steps: List[Flow] = list(map(to_flow, steps))
-        kwargs = filter_kwargs_by_pydantic(SequenceFlow, locals(), exclude={"steps"}, exclude_none=True)
-        super(Flow, self).__init__(steps=flow_steps, **kwargs)
+        super(Flow, self).__init__(steps=flow_steps, name=name)
 
     @trace
-    def invoke(self, inp: Input) -> Output:
+    def invoke(self, inp: Input, **kwargs: Any) -> Output:
         for step in self.steps:
-            inp = step.invoke(inp)
+            inp = step.invoke(inp, **kwargs)  # Kwargs are only bound to the first step.
+            kwargs = {}
         return cast(Output, inp)
 
     @trace
-    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
+    def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
         for step in self.steps:
-            inp = step.transform(inp)
+            inp = step.transform(inp, **kwargs)
+            kwargs = {}
         yield from cast(Iterator[Output], inp)
 
     def __or__(self, other: FlowLike[Any, Other]) -> SequenceFlow[Input, Other]:
