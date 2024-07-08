@@ -11,8 +11,9 @@ from core.callbacks.run import Run
 from core.flow.config import get_cur_config, var_local_config, FlowConfig
 from core.flow.flow import BindingFlowBase, Flowable, to_flow, Flow
 from core.flow.utils import ConfigurableField
+from core.llm.llm import to_chat_messages
 from core.messages.chat_message import ChatMessage
-from core.messages.utils import to_chat_message, MessageLike
+from core.messages.utils import MessageLike
 
 Input = Union[MessageLike, Dict[str, Any]]
 Output = TypeVar("Output", covariant=True, bound=Union[ChatMessage, Dict[str, Any]])
@@ -53,19 +54,19 @@ class LLMWithHistory(BindingFlowBase[Input, Output]):
             # replace input[input_messages_key] = history messages + input[input_messages_key]
             def get_input_messages_by_key(inp: Dict[str, Any]) -> List[ChatMessage]:
                 assert self.input_messages_key is not None
-                input_message = to_chat_message(inp[self.input_messages_key])
+                input_messages = to_chat_messages(inp[self.input_messages_key])
                 history_messages = self.get_history().get_messages()
-                return history_messages + [input_message]
+                return history_messages + input_messages
 
             history_flow = start_flow.assign(**{self.input_messages_key: get_input_messages_by_key})
         else:
             # If no history_messages_key and no input_messages_key, the input must be MessageLike.
             def get_input_messages(inp: MessageLike) -> List[ChatMessage]:
-                return self.get_history().get_messages() + [to_chat_message(inp)]
+                return self.get_history().get_messages() + to_chat_messages(inp)
 
             history_flow = to_flow(get_input_messages)
-        self.bound = (history_flow | self.bound).with_listeners(on_end=self.save_history)
 
+        self.bound = history_flow.pipe(self.bound, main=True).with_listeners(on_end=self.save_history)
         return self
 
     def get_history(self) -> BaseChatMessageHistory:
@@ -108,6 +109,10 @@ class LLMWithHistory(BindingFlowBase[Input, Output]):
         if self.output_messages_key:
             output = output[self.output_messages_key]
         assert isinstance(output, ChatMessage)
+        # If it is intermediate message, don't save it.
+        # Agent will handler the intermediate messages.
+        if output.tool_calls:
+            return
 
         history = self.get_history()
         inp = run.input
@@ -116,4 +121,4 @@ class LLMWithHistory(BindingFlowBase[Input, Output]):
             input_key = self.input_messages_key or "input"
             if input_key in inp:
                 inp = inp[input_key]
-        history.add_messages([to_chat_message(inp), output])
+        history.add_messages(to_chat_messages(inp) + [output])

@@ -15,15 +15,17 @@ class ConsoleCallback(CallbackHandler):
         config = get_cur_config()
         print(f"{get_breadcrumbs()}: on_flow_start: {inp}"
               f"{f', {kwargs}' if kwargs else ''}"
-              f"{f', {config.configurable}' if config.configurable else ''}")
+              f"{f', {config.configurable}' if config.configurable else ''}.")
         return True
 
     def on_flow_end(self, output: Any) -> None:
-        extra_data = current_run().extra_data
-        print(f"{get_breadcrumbs()}: on_flow_end: {output}{f', {extra_data}' if extra_data else ''}")
+        run = current_run()
+        extra_data = run.extra_data
+        print(f"{get_breadcrumbs()}: on_flow_end: {output}{f', {extra_data}' if extra_data else ''},"
+              f" use time: {run.end_time-run.start_time:.2f} s.")
 
     def on_flow_error(self, e: BaseException) -> None:
-        print(f"{get_breadcrumbs()}: on_flow_error: {e}")
+        print(f"{get_breadcrumbs()}: on_flow_error: {e}.")
 
 
 def get_breadcrumbs() -> str:

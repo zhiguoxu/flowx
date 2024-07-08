@@ -13,7 +13,7 @@ from core.flow.flow import Flow, FunctionFlow, FixOutputFlow, Flowable, Generato
 from core.llm.llm import LLMInput, ChatResult, to_chat_messages, ToolChoice
 from core.logging import get_logger
 from core.messages.chat_message import ChatMessage, Role, ToolCall, ChatMessageChunk
-from core.tool import Tool, to_tool, ToolLike
+from core.tool import Tool, to_tool
 from core.utils.utils import NotGiven, NOT_GIVEN, add, is_generator
 
 logger = get_logger(__name__)
@@ -63,7 +63,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
     def invoke(self, inp: LLMInput, **kwargs: Any) -> ChatMessage:
         chat_result = self.chat(inp, **kwargs)
         if self.return_intermediate_steps and ENABLE_TRACE:
-            current_run().update_extra_data(intermedia_steps=chat_result.messages[:-1])
+            current_run().update_extra_data(intermediate_steps=chat_result.messages[:-1])
 
         last_message = chat_result.messages[-1]
         if last_message and last_message.role == Role.TOOL:
@@ -80,9 +80,9 @@ class Agent(Flow[LLMInput, ChatMessage]):
     def stream(self, inp: LLMInput, **kwargs: Any  # type: ignore[override]
                ) -> Iterator[ChatMessageChunk | ChatMessage]:
         chat_result = self.stream_chat(inp, **kwargs)
-        intermedia_steps: List[ChatMessage] = []
+        intermediate_steps: List[ChatMessage] = []
 
-        # Split output stream into intermedia_steps and final answer.
+        # Split output stream into intermediate_steps and final answer.
         last_message_list: List[ChatMessageChunk | ChatMessage | None] = [None]
 
         def final_answer_stream() -> Iterator[ChatMessageChunk]:
@@ -92,14 +92,14 @@ class Agent(Flow[LLMInput, ChatMessage]):
                 if isinstance(message_or_chunk, ChatMessageChunk):
                     yield message_or_chunk
                 else:
-                    # Only tool calls request and observations are ChatMessage, which are also intermedia_steps.
-                    intermedia_steps.append(message_or_chunk)
+                    # Only tool calls request and observations are ChatMessage, which are also intermediate_steps.
+                    intermediate_steps.append(message_or_chunk)
 
         yield from final_answer_stream()
 
         last_message = last_message_list[0]
         if last_message and last_message.role == Role.TOOL:
-            intermedia_steps = intermedia_steps[:-1]
+            intermediate_steps = intermediate_steps[:-1]
             # If the last message is tool observation, it is returned direct.
             observation_data = last_message.extra_data
             if isinstance(observation_data, Flow):
@@ -117,7 +117,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
                 yield last_message
 
         if self.return_intermediate_steps and ENABLE_TRACE:
-            current_run().update_extra_data(intermedia_steps=intermedia_steps)
+            current_run().update_extra_data(intermedia_steps=intermediate_steps)
 
     def chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         # If stream = False, _run_loop only return iter of ChatMessage.

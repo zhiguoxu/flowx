@@ -74,7 +74,10 @@ class Flowable(Generic[Input, Output], ABC):
         ...
 
     @abstractmethod
-    def pipe(self, *others: FlowLike[Output, Other], name: str | None = None) -> Flowable[Input, Other]:
+    def pipe(self,
+             *others: FlowLike[Any, Other],
+             main: bool = False,  # is others[0] main step
+             name: str | None = None) -> SequenceFlow[Input, Other]:
         ...
 
     @abstractmethod
@@ -193,8 +196,38 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
     def __ror__(self, other: FlowLike[Other, Any]) -> SequenceFlow[Other, Output]:
         return to_flow(other).__or__(self)  # type: ignore[return-value]
 
-    def pipe(self, *others: FlowLike[Any, Other], name: str | None = None) -> SequenceFlow[Input, Other]:
-        return SequenceFlow(self, *others, name=name)
+    def pipe(self,
+             *others: FlowLike[Any, Other],
+             main: bool = False,  # is others[0] main step
+             name: str | None = None) -> SequenceFlow[Input, Other]:
+        other_steps, main_step, name = self._prepare_pipe(*others, main=main, name=name)
+        return SequenceFlow(self, *other_steps, main_step=main_step, name=name)
+
+    def _prepare_pipe(self,
+                      *others: FlowLike[Any, Other],
+                      main: bool,  # is others[0] main step
+                      name: str | None = None
+                      ) -> Tuple[List[Flowable], Flowable | None, str | None]:  # [steps, name, main_step]
+        other_flows = [to_flow(other) for other in others]
+        main_step: Flowable | None = None
+        if main:
+            first_other = other_flows[0]
+            main_step = first_other
+            if isinstance(first_other, SequenceFlow):
+                main_step = first_other.main_step or first_other.steps[0]
+
+        name = name or self.name
+        other_steps = []
+        for other in other_flows:
+            if isinstance(other, SequenceFlow):
+                name = name or other.name
+                other_steps += other.steps
+                if other.main_step is not None:
+                    assert main_step is None or main_step is other.main_step, "Pipe with more than 1 main steps!"
+                    main_step = other.main_step
+            else:
+                other_steps.append(other)
+        return other_steps, main_step, name
 
     def bind(self, **kwargs: Any) -> BindingFlow[Input, Output]:
         return BindingFlow(bound=self, kwargs=kwargs)
@@ -320,23 +353,29 @@ class FunctionFlow(Flow[Input, Output]):
 
 class SequenceFlow(Flow[Input, Output]):
     steps: List[Flowable]
+    main_step: Flowable | None = None
+    """The flow that will accept bound kwargs. If it is None, the first step will accept bound kwargs."""
 
-    def __init__(self, *steps: FlowLike[Any, Any], name: str | None = None):
+    def __init__(self, *steps: FlowLike[Any, Any], main_step: Flowable | None = None, name: str | None = None):
         flow_steps: List[Flow] = list(map(to_flow, steps))
-        super(Flow, self).__init__(steps=flow_steps, name=name)
+        super(Flow, self).__init__(steps=flow_steps, main_step=main_step, name=name)
 
     @trace
     def invoke(self, inp: Input, **kwargs: Any) -> Output:
         for step in self.steps:
-            inp = step.invoke(inp, **kwargs)  # Kwargs are only bound to the first step.
-            kwargs = {}
+            if self._is_main_step(step):
+                inp = step.invoke(inp, **kwargs)  # Kwargs are only bound to main_step or the first step.
+            else:
+                inp = step.invoke(inp)
         return cast(Output, inp)
 
     @trace
     def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
         for step in self.steps:
-            inp = step.transform(inp, **kwargs)
-            kwargs = {}
+            if self._is_main_step(step):
+                inp = step.transform(inp, **kwargs)
+            else:
+                inp = step.transform(inp)
         yield from cast(Iterator[Output], inp)
 
     def __or__(self, other: FlowLike[Any, Other]) -> SequenceFlow[Input, Other]:
@@ -344,6 +383,17 @@ class SequenceFlow(Flow[Input, Output]):
             return SequenceFlow(*self.steps, *other.steps, name=self.name or other.name)
         else:
             return SequenceFlow(*self.steps, other, name=self.name)
+
+    def pipe(self,
+             *others: FlowLike[Any, Other],
+             main: bool = False,  # is others[0] main step
+             name: str | None = None) -> SequenceFlow[Input, Other]:
+        other_steps, main_step, name = self._prepare_pipe(*others, main=main, name=name or self.name)
+        assert self.main_step is None or main_step is None, "Pipe with more than 1 main steps!"
+        return SequenceFlow(*self.steps, *other_steps, main_step=main_step, name=name)
+
+    def _is_main_step(self, step: Flowable):
+        return (self.main_step is None and step is self.steps[0]) or (step is self.main_step)
 
 
 class ParallelFlow(Flow[Input, Dict[str, Any]]):
@@ -456,16 +506,17 @@ class GeneratorFlow(Flow[Input, Output]):
 class BindingFlowBase(Flow[Input, Output], ABC):
     bound: Flowable[Input, Output]
 
-    def invoke(self, inp: Input) -> Output:
+    def invoke(self, inp: Input, **kwargs: Any) -> Output:
         # Transmit the local_config (share it with bound),
         # the local config may be set by its caller by caller.invoke(inp, local_config).
-        return self.bound.invoke(inp, var_local_config.get())
+        # Also transmit the kwargs to inner bound.
+        return self.bound.invoke(inp, var_local_config.get(), **kwargs)
 
-    def stream(self, inp: Input) -> Iterator[Output]:
-        yield from self.bound.stream(inp, var_local_config.get())
+    def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
+        yield from self.bound.stream(inp, var_local_config.get(), **kwargs)
 
-    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
-        yield from self.bound.transform(inp, var_local_config.get())
+    def transform(self, inp: Iterator[Input], **kwargs) -> Iterator[Output]:
+        yield from self.bound.transform(inp, var_local_config.get(), **kwargs)
 
     @contextmanager
     def get_run(self) -> Iterator[Run]:
@@ -512,16 +563,16 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         init_kwargs = filter_kwargs_by_pydantic(self, locals(), exclude_none=True)
         super().__init__(**init_kwargs)
 
-    def invoke(self, inp: Input) -> Output:
+    def invoke(self, inp: Input, **kwargs: Any) -> Output:
 
-        return self._get_bound().invoke(inp, self._get_local_config(), **self.kwargs)
+        return self._get_bound().invoke(inp, self._get_local_config(), **{**self.kwargs, **kwargs})
         # Not every invoke accept **kwargs, so if you bind kwargs, it must be accepted by inner flow.
 
-    def stream(self, inp: Input) -> Iterator[Output]:
-        yield from self._get_bound().stream(inp, self._get_local_config(), **self.kwargs)
+    def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
+        yield from self._get_bound().stream(inp, self._get_local_config(), **{**self.kwargs, **kwargs})
 
-    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
-        yield from self._get_bound().transform(inp, self._get_local_config(), **self.kwargs)
+    def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
+        yield from self._get_bound().transform(inp, self._get_local_config(), **{**self.kwargs, **kwargs})
 
     def with_retry(self, **kwargs: Any) -> BindingFlow[Input, Output]:  # type: ignore[override]
         return BindingFlow(

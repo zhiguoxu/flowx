@@ -1,5 +1,5 @@
 import itertools
-from typing import TypeVar, Sequence, Type, Tuple, Iterator
+from typing import TypeVar, Sequence, Type, Tuple, Iterator, Any
 
 from core.flow.config import var_local_config
 from core.flow.flow import BindingFlowBase, Flowable
@@ -20,14 +20,14 @@ class FlowWithFallbacks(BindingFlowBase[Input, Output]):
     and the base flow and its fallbacks must accept a dict as input.
     """
 
-    def invoke(self, inp: Input) -> Output:
+    def invoke(self, inp: Input, **kwargs: Any) -> Output:
         first_error = None
         last_error = None
         for flow in itertools.chain([self.bound], self.fallbacks):
             if self.exception_key and last_error is not None:
                 inp[self.exception_key] = last_error
             try:
-                return flow.invoke(inp, var_local_config.get())
+                return flow.invoke(inp, var_local_config.get(), **kwargs)
             except self.exceptions_to_handle as e:
                 if first_error is None:
                     first_error = e
@@ -35,13 +35,13 @@ class FlowWithFallbacks(BindingFlowBase[Input, Output]):
         assert first_error is not None
         raise first_error
 
-    def stream(self, inp: Input) -> Iterator[Output]:
-        yield from self._stream_of_transform(inp, True)
+    def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
+        yield from self._stream_of_transform(inp, True, **kwargs)
 
-    def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
-        yield from self._stream_of_transform(inp, False)
+    def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
+        yield from self._stream_of_transform(inp, False, **kwargs)
 
-    def _stream_of_transform(self, inp: Input | Iterator[Input], is_stream: bool) -> Iterator[Output]:
+    def _stream_of_transform(self, inp: Input | Iterator[Input], is_stream: bool, **kwargs: Any) -> Iterator[Output]:
         first_error = None
         last_error = None
         stream = None
@@ -50,9 +50,9 @@ class FlowWithFallbacks(BindingFlowBase[Input, Output]):
                 inp[self.exception_key] = last_error
             try:
                 if is_stream:
-                    stream = flow.stream(inp, var_local_config.get())
+                    stream = flow.stream(inp, var_local_config.get(), **kwargs)
                 else:
-                    stream = flow.transform(inp, var_local_config.get())
+                    stream = flow.transform(inp, var_local_config.get(), **kwargs)
                 yield next(stream)
                 first_error = None
                 break

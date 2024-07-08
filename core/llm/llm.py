@@ -115,7 +115,7 @@ class LLM(Flow[LLMInput, ChatMessage]):
             MessagesPlaceholder(var_name="input")
         ])
 
-        bound = prompt | self
+        bound = prompt.pipe(self, main=True)
         kwargs = filter_kwargs_by_pydantic(LLMWithHistory, locals(), exclude_none=True)
         return LLMWithHistory(**kwargs)
 
@@ -175,9 +175,9 @@ def to_chat_messages(inp: LLMInput) -> List[ChatMessage]:
 class ChatResult(BaseModel):
     messages: List[ChatMessage] = Field(default_factory=list)
     """
-    When used as LLM's output, len(messages) = LLM.n,
-    and when used as Agent's output, messages messages[-1] = the final answer,
-    messages[:-1] = intermedia steps, if it has.
+    When used as LLM's output, len(messages) is LLM.n,
+    and when used as Agent's output, messages messages[-1] is the final answer,
+    messages[:-1] is intermediate steps, if it has.
     """
 
     usage: TokenUsage | None = None
