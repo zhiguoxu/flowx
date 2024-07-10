@@ -3,7 +3,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
-from core.rag.embedding.embedding import Embedding
+from core.rag.embeddings.embeddings import Embeddings
 from core.rag.utils import infer_torch_device, to_list, OneOrMany
 from core.utils.utils import filter_kwargs_by_pydantic, filter_kwargs_by_method
 
@@ -16,7 +16,7 @@ DEFAULT_QUERY_BGE_INSTRUCTION_EN = "Represent this question for searching releva
 DEFAULT_QUERY_BGE_INSTRUCTION_ZH = "为这个句子生成表示以用于检索相关文章："
 
 
-class HuggingfaceEmbedding(BaseModel, Embedding):
+class HuggingfaceEmbeddings(BaseModel, Embeddings):
     model: str = DEFAULT_MODEL_NAME
     client: SentenceTransformer
     # Encode parameters.
@@ -65,7 +65,7 @@ class HuggingfaceEmbedding(BaseModel, Embedding):
             client.max_seq_length = max_length
 
         extra_encode_kwargs = filter_kwargs_by_method(client.encode, model_or_encode_kwargs)
-        kwargs = filter_kwargs_by_pydantic(HuggingfaceEmbedding, locals(), exclude_none=True)
+        kwargs = filter_kwargs_by_pydantic(HuggingfaceEmbeddings, locals(), exclude_none=True)
         super().__init__(**kwargs)
 
     def embed_query(self, text: str) -> List[float]:

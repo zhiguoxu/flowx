@@ -82,7 +82,7 @@ class MessagePydanticOutParser(Flow[ChatMessage, Output]):
         return json.loads(json_str, strict=self.strict)
 
 
-class MessageStrOutParser(Flow[ChatMessage, str]):
+class StrOutParser(Flow[ChatMessage, str]):
     def invoke(self, inp: ChatMessage) -> str:
         return inp.content or ""
 
