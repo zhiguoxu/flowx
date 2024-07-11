@@ -161,6 +161,14 @@ class LLM(Flow[LLMInput, ChatMessage]):
         else:
             return llm | message_parser
 
+    @abstractmethod
+    @property
+    def tokenizer(self) -> Callable[[str], List[int]]:
+        """Used to count the number of tokens in documents to constrain them to be under a certain limit."""
+
+    def token_length(self, text: str):
+        return len(self.tokenizer(text))
+
     class Config:
         extra = "forbid"
 

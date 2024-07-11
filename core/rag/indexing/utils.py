@@ -8,6 +8,7 @@ from typing import Iterable, Iterator, TypeVar, Any, Set
 from pydantic import model_validator
 
 from core.rag.document.document import Document
+from core.utils.utils import filter_kwargs_by_pydantic
 
 T = TypeVar("T")
 
@@ -20,7 +21,6 @@ def _hash_string_to_uuid(input_string: str) -> uuid.UUID:
 
 
 class HashedDocument(Document):
-    uid: str
     hash_: str
     """The hash of the document including content and metadata."""
     text_hash: str
@@ -28,20 +28,16 @@ class HashedDocument(Document):
 
     @model_validator(mode='before')
     @classmethod
-    def check_card_number_omitted(cls, data: Any) -> Any:
+    def prepare_data(cls, data: Any) -> Any:
         data["text_hash"] = str(_hash_string_to_uuid(data["text"]))
         metadata = json.dumps(data["metadata"], sort_keys=True)
         data["metadata_hash"] = str(_hash_string_to_uuid(metadata))
         data["hash_"] = str(_hash_string_to_uuid(data["text_hash"] + data["metadata_hash"]))
-        if doc_id := data.get("id") is not None:
-            uid = doc_id
-        else:
-            uid = data["hash_"]
-        data["uid"] = uid
         return data
 
     def to_document(self) -> Document:
-        return Document(id=self.id or self.uid, text=self.text, metadata=self.metadata)
+        kwargs = filter_kwargs_by_pydantic(Document, self.model_dump())
+        return Document(**kwargs)
 
     @classmethod
     def from_document(cls, document: Document) -> HashedDocument:

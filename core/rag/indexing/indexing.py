@@ -59,7 +59,7 @@ class Index(BaseModel):
             )
 
             source_ids: Sequence[str | None] = [source_id_assigner(doc) for doc in hashed_docs]
-            exists_batch = self.index_manager.exists([doc.uid for doc in hashed_docs])
+            exists_batch = self.index_manager.exists([doc.id for doc in hashed_docs])
 
             # Filter out documents that already exist in the index manager.
             ids = []
@@ -69,11 +69,11 @@ class Index(BaseModel):
             for hashed_doc, doc_exists in zip(hashed_docs, exists_batch):
                 if doc_exists:
                     if force_update:
-                        seen_docs.add(hashed_doc.uid)
+                        seen_docs.add(hashed_doc.id)
                     else:
-                        ids_to_skip.append(hashed_doc.uid)
+                        ids_to_skip.append(hashed_doc.id)
                         continue
-                ids.append(hashed_doc.uid)
+                ids.append(hashed_doc.id)
                 docs_to_index.append(hashed_doc.to_document())
 
             # 1. Update refresh timestamp
@@ -89,7 +89,7 @@ class Index(BaseModel):
                 num_updated += len(seen_docs)
 
             # 3. Update index, even if they already exist since we want to refresh their timestamp.
-            self.index_manager.update([doc.uid for doc in hashed_docs], index_start_time, source_ids=source_ids)
+            self.index_manager.update([doc.id for doc in hashed_docs], index_start_time, source_ids=source_ids)
 
             if clean_older_source:
                 for source_id in source_ids:

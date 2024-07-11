@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, TypeVar, Any, Tuple, Dict
 
-from core.rag.document.document import Document
+from core.rag.document.document import Document, MetadataMode
 from core.utils.utils import filter_kwargs_by_method
 
 VectorStoreT = TypeVar("VectorStoreT", bound="VectorStore")
@@ -20,7 +20,7 @@ class VectorStore(ABC):
                       documents: List[Document],
                       ids: List[str] | None = None,
                       batch_size: int = 1_000) -> List[str]:
-        texts = [doc.text for doc in documents]
+        texts = [doc.get_content(MetadataMode.EMBED) for doc in documents]
         metadatas = [doc.metadata for doc in documents]
         return self.add_texts(texts, metadatas, ids, batch_size)
 

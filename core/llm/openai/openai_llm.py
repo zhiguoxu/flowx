@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, cast
+from typing import List, Dict, Any, cast, Callable
 
 from openai import OpenAI
 from openai.types import ChatModel
@@ -7,6 +7,7 @@ from pydantic import Field
 from core.llm.llm import LLM, ChatResult, to_chat_messages, LLMInput
 from core.llm.openai.utils import chat_result_from_openai, to_openai_message, tool_to_openai, tools_to_openai, \
     tool_choice_to_openai
+from core.llm.utils import get_tokenizer
 from core.messages.utils import remove_extra_info
 from core.tool import Tool
 from core.utils.utils import filter_kwargs_by_method
@@ -23,6 +24,8 @@ class OpenAILLM(LLM):
         description="If set, the token usage will return at the end of stream."
                     "Refer to ChatCompletionChunk.usage and ChatCompletionStreamOptionsParam for more info"
     )
+
+    _tokenizer: Callable[[str], List[int]] | None = None  # for cache
 
     def chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         # Not specify stream=False.
@@ -83,3 +86,9 @@ class OpenAILLM(LLM):
     @property
     def openai_tools(self) -> List[Dict[str, Any]] | None:
         return list(map(tool_to_openai, self.tools)) if self.tools else None
+
+    @property
+    def tokenizer(self) -> Callable[[str], List[int]]:
+        self._tokenizer = self._tokenizer or get_tokenizer(self.model)
+        assert self._tokenizer
+        return self._tokenizer

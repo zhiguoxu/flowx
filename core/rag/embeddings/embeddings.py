@@ -12,7 +12,11 @@ class Embeddings(ABC):
 
     @abstractmethod
     def embed_documents(self, text_list: List[str]) -> List[List[float]]:
-        ...
+        """
+        todo If documents are too long, refer to
+        https://github.com/openai/openai-cookbook/blob/main/examples/Embedding_long_inputs.ipynb
+        and OpenAIEmbeddings._get_len_safe_embeddings
+        """
 
     def __call__(self, input: List[str] | NDArray[Union[np.uint, np.int_, np.float_]]) -> List[List[float]]:
         return self.embed_documents(input)
