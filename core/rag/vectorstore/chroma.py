@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from core.rag.document.document import Document
 from core.rag.embeddings.embeddings import Embeddings
 from core.rag.embeddings.huggingface.hf_embedding import HuggingfaceEmbeddings
+from core.rag.utils import batch3
 from core.rag.vectorstore.utils import mmr_top_k, calc_similarity
 from core.rag.vectorstore.vectorstore import VectorStore
 from core.utils.utils import filter_kwargs_by_pydantic, filter_kwargs_by_method
@@ -49,7 +50,17 @@ class Chroma(BaseModel, VectorStore):
     def add_texts(self,
                   texts: List[str],
                   metadatas: List[dict] | None = None,
-                  ids: List[str] | None = None) -> List[str]:
+                  ids: List[str] | None = None,
+                  batch_size: int = 100) -> List[str]:
+        ret_ids = []
+        for texts_, metadatas_, ids_ in batch3(batch_size, texts, metadatas, ids):
+            ret_ids += self._add_texts(texts_, metadatas_, ids_)
+        return ret_ids
+
+    def _add_texts(self,
+                   texts: List[str],
+                   metadatas: List[dict] | None = None,
+                   ids: List[str] | None = None) -> List[str]:
         ids = ids or [str(uuid.uuid4()) for _ in texts]
         embeddings = self.embedding_function.embed_documents(texts)
         if not metadatas:
@@ -62,17 +73,6 @@ class Chroma(BaseModel, VectorStore):
                                documents=texts,
                                ids=ids)
         return ids
-
-    def search(self,
-               query: str | None = None,
-               embedding: List[float] | None = None,
-               k: int = 4,
-               filters: Dict[str, str] | None = None,
-               where_document: Dict[str, str] = None,
-               **kwargs: Any) -> List[Document]:
-        kwargs = filter_kwargs_by_method(self.mmr_search_with_score, {**locals(), **kwargs})
-        docs_and_scores = self.search_with_score(**kwargs)
-        return [doc for doc, _ in docs_and_scores]
 
     def search_with_score(self,
                           query: str | None = None,
@@ -97,32 +97,6 @@ class Chroma(BaseModel, VectorStore):
                                   results["ids"][0],
                                   results["distances"][0])]
 
-    def mmr_search(self,
-                   query: str | None = None,
-                   embedding: List[float] | None = None,
-                   k: int = 5,
-                   fetch_k: int = 20,
-                   lambda_mult: float = 0.5,
-                   filters: Dict[str, str] | None = None,
-                   where_document: Dict[str, str] | None = None,
-                   **kwargs: Any) -> List[Document]:
-        """
-        Return documents using maximal marginal relevance (MMR).
-        MMR balances similarity to the query and diversity among results.
-        Args:
-            query: Query str.
-            embedding: Query embedding.
-            k: Number of documents to return (default: 5).
-            fetch_k: Number of documents to fetch for MMR (default: 20).
-            lambda_mult: Controls diversity (0 = max diversity, 1 = min diversity, default: 0.5).
-            filters: Optional metadata filter.
-            where_document: A WhereDocument type dict used to filter by the documents.
-        Returns: List of selected documents and scores.
-        """
-        kwargs = filter_kwargs_by_method(self.mmr_search_with_score, {**locals(), **kwargs}, exclude={"kwargs"})
-        docs_and_scores = self.mmr_search_with_score(**kwargs)
-        return [doc for doc, _ in docs_and_scores]
-
     def mmr_search_with_score(self,
                               query: str | None = None,
                               embedding: List[float] | None = None,
@@ -143,6 +117,7 @@ class Chroma(BaseModel, VectorStore):
                                         where_document=where_document,
                                         include=["metadatas", "documents", "distances", "embeddings"],
                                         **kwargs)
+
         mmr_selected = mmr_top_k(np.array(embedding, dtype=np.float32),
                                  results["embeddings"][0],
                                  similarity_fn=self.similarity_fn,
@@ -153,6 +128,20 @@ class Chroma(BaseModel, VectorStore):
                           metadata=results["metadatas"][0][index] or {},
                           id=results["ids"][0][index]), score)
                 for index, score in zip(*mmr_selected)]
+
+    def delete(self,
+               ids: List[str] | None = None,
+               filters: Dict[str, str] | None = None,
+               where_document: Dict[str, str] | None = None) -> None:
+        self.collection.delete(ids=ids, where=filters, where_document=where_document)
+
+    def delete_all(self):
+        name = self.collection.name
+        metadata = self.collection.metadata
+        self.client.delete_collection(name)
+        self.collection = self.client.get_or_create_collection(name=name,
+                                                               metadata=metadata,
+                                                               embedding_function=None)
 
     class Config:
         arbitrary_types_allowed = True
