@@ -7,5 +7,5 @@ from core.rag.document_loaders.loader import FileLoader
 
 
 class DocxLoader(FileLoader):
-    def load(self) -> List[Document]:
-        return [Document(text=docx2txt.process(self), metadata=self.metadata)]
+    def _load(self) -> List[Document]:
+        return [Document(text=docx2txt.process(self))]

@@ -41,7 +41,7 @@ class HashedDocument(Document):
 
     @classmethod
     def from_document(cls, document: Document) -> HashedDocument:
-        return cls(id=document.id, text=document.text, metadata=document.metadata)  # type: ignore[call-arg]
+        return cls(**document.model_dump())
 
 
 def dedup_docs(hashed_documents: Iterable[HashedDocument]) -> Iterator[HashedDocument]:

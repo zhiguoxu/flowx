@@ -1,4 +1,4 @@
-import uuid
+import json
 from typing import Dict, Callable, List, Tuple, Any
 
 import numpy as np
@@ -7,10 +7,10 @@ from chromadb.api.client import Client
 from chromadb.api.models.Collection import Collection
 from pydantic import BaseModel, Field
 
-from core.rag.document.document import Document, MetadataMapping
+from core.rag.document.document import Document, MetadataMode
 from core.rag.embeddings.embeddings import Embeddings
 from core.rag.embeddings.huggingface.hf_embedding import HuggingfaceEmbeddings
-from core.rag.utils import batch3
+from core.rag.utils import batch3, batch2
 from core.rag.vectorstore.utils import mmr_top_k, calc_similarity
 from core.rag.vectorstore.vectorstore import VectorStore
 from core.utils.utils import filter_kwargs_by_pydantic
@@ -47,30 +47,25 @@ class Chroma(BaseModel, VectorStore):
         kwargs = filter_kwargs_by_pydantic(Chroma, locals(), exclude_none=True)
         super().__init__(**kwargs)
 
-    def add_texts(self,
-                  texts: List[str],
-                  metadatas: List[MetadataMapping] | None = None,
-                  ids: List[str] | None = None,
-                  batch_size: int = 100) -> List[str]:
+    def add_documents(self,
+                      documents: List[Document],
+                      ids: List[str] | None = None,
+                      batch_size: int = 1_000) -> List[str]:
         ret_ids = []
-        for texts_, metadatas_, ids_ in batch3(batch_size, texts, metadatas, ids):
-            ret_ids += self._add_texts(texts_, metadatas_, ids_)
+        for docs_, ids_ in batch2(batch_size, documents, ids):
+            ret_ids += self._add_documents(docs_, ids_)
         return ret_ids
 
-    def _add_texts(self,
-                   texts: List[str],
-                   metadatas: List[MetadataMapping] | None = None,
-                   ids: List[str] | None = None) -> List[str]:
-        ids = ids or [str(uuid.uuid4()) for _ in texts]
-        embeddings = self.embedding_function.embed_documents(texts)
-        if not metadatas:
-            self.collection.upsert(embeddings=embeddings, documents=texts, ids=ids)  # type: ignore[arg-type]
-        else:
-            assert len(texts) == len(metadatas)
-            self.collection.upsert(metadatas=metadatas,
-                                   embeddings=embeddings,  # type: ignore[arg-type]
-                                   documents=texts,
-                                   ids=ids)
+    def _add_documents(self, documents: List[Document], ids: List[str] | None = None) -> List[str]:
+        ids = ids or [doc.id for doc in documents]
+        metadatas = [{**doc.metadata, "others": doc.model_dump_json(exclude={"id", "text", "metadata"})}
+                     for doc in documents]
+        texts_to_embed = [doc.get_content(MetadataMode.EMBED) for doc in documents]
+        embeddings = self.embedding_function.embed_documents(texts_to_embed)
+        self.collection.upsert(metadatas=metadatas,  # type: ignore[arg-type]
+                               embeddings=embeddings,  # type: ignore[arg-type]
+                               documents=[doc.text for doc in documents],
+                               ids=ids)
         return ids
 
     def search_with_score(self,
@@ -90,11 +85,15 @@ class Chroma(BaseModel, VectorStore):
                                         where_document=where_document,
                                         **kwargs)
 
-        return [(Document(text=result[0], metadata=result[1] or {}, id=result[2]), 1 - result[3])
-                for result in zip(results["documents"][0],  # type: ignore[index]
-                                  results["metadatas"][0],  # type: ignore[index]
-                                  results["ids"][0],
-                                  results["distances"][0])]  # type: ignore[index]
+        doc_scores = []
+        for doc_id, text, metadata, distance in zip(results["ids"][0],
+                                                    results["documents"][0],  # type: ignore[index]
+                                                    results["metadatas"][0],  # type: ignore[index]
+                                                    results["distances"][0]):  # type: ignore[index]
+            metadata = dict(metadata)
+            others = json.loads(metadata.pop("others"))
+            doc_scores.append((Document(id=doc_id, text=text, metadata=metadata, **others), 1 - distance))
+        return doc_scores
 
     def mmr_search_with_score(self,
                               query: str | None = None,
@@ -122,11 +121,14 @@ class Chroma(BaseModel, VectorStore):
                                  similarity_fn=self.similarity_fn,
                                  top_k=k,
                                  lambda_mult=lambda_mult)
-
-        return [(Document(text=results["documents"][0][index],  # type: ignore[index]
-                          metadata=results["metadatas"][0][index] or {},  # type: ignore[index]
-                          id=results["ids"][0][index]), score)
-                for index, score in zip(*mmr_selected)]
+        doc_scores = []
+        for index, score in zip(*mmr_selected):
+            doc_id = results["ids"][0][index]
+            text = results["documents"][0][index]  # type: ignore[index]
+            metadata = dict(results["metadatas"][0][index])  # type: ignore[index]
+            others = json.loads(metadata.pop("others"))
+            doc_scores.append((Document(id=doc_id, text=text, metadata=metadata, **others), score))
+        return doc_scores
 
     def delete(self,
                ids: List[str] | None = None,

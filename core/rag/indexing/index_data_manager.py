@@ -5,7 +5,7 @@ from typing import Sequence, List, Dict
 from pydantic import BaseModel, Field
 
 
-class IndexManager(ABC):
+class IndexDataManager(ABC):
     @abstractmethod
     def exists(self, keys: Sequence[str]) -> List[bool]:
         ...
@@ -64,7 +64,7 @@ class IndexManager(ABC):
         ...
 
 
-class MemoryIndexManger(BaseModel, IndexManager):
+class MemoryIndexDataManger(BaseModel, IndexDataManager):
     class Record(BaseModel):
         source_id: str | None = None
         updated_time: float

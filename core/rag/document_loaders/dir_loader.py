@@ -16,8 +16,10 @@ class DirLoader(BaseModel, DocumentLoader):
     recursive: bool = False
     encoding: str = "utf-8"
     metadata: MetadataMapping = Field(default_factory=dict)
-    suffix_and_loaders: Dict[str, Type[FileLoader]] = Field(default_factory=dict)
+    excluded_llm_metadata_keys: List[str] = Field(default_factory=list)
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
+    suffix_and_loaders: Dict[str, Type[FileLoader]] = Field(default_factory=dict)
+    excluded_embed_metadata_keys: List[str] = Field(default_factory=list)
 
     def load(self) -> List[Document]:
         docs = []

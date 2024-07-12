@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from core.rag.document.document import Document
 from core.rag.document_loaders.loader import DocumentLoader
-from core.rag.indexing.index_manager import IndexManager
+from core.rag.indexing.index_data_manager import IndexDataManager
 from core.rag.indexing.utils import dedup_docs, HashedDocument
 from core.rag.utils import batch
 from core.rag.vectorstore.vectorstore import VectorStore
@@ -24,7 +24,7 @@ class IndexingResult(BaseModel):
 
 
 class Index(BaseModel):
-    index_manager: IndexManager
+    index_data_manager: IndexDataManager
     vector_store: VectorStore
     source_id_key: str | Callable[[Document], str] | None = None
 
@@ -47,7 +47,7 @@ class Index(BaseModel):
 
         source_id_assigner = _get_source_id_assigner(source_id_key)
 
-        index_start_time = self.index_manager.get_time()
+        index_start_time = self.index_data_manager.get_time()
         num_added = 0
         num_skipped = 0
         num_updated = 0
@@ -59,7 +59,7 @@ class Index(BaseModel):
             )
 
             source_ids: Sequence[str | None] = [source_id_assigner(doc) for doc in hashed_docs]
-            exists_batch = self.index_manager.exists([doc.id for doc in hashed_docs])
+            exists_batch = self.index_data_manager.exists([doc.id for doc in hashed_docs])
 
             # Filter out documents that already exist in the index manager.
             ids = []
@@ -79,7 +79,7 @@ class Index(BaseModel):
             # 1. Update refresh timestamp
             if ids_to_skip:
                 # Update skip documents or them will be deleted if clean_older_source = True.
-                self.index_manager.update(ids_to_skip, index_start_time)
+                self.index_data_manager.update(ids_to_skip, index_start_time)
                 num_skipped += len(ids_to_skip)
 
             # 2. Write to vector store
@@ -89,7 +89,7 @@ class Index(BaseModel):
                 num_updated += len(seen_docs)
 
             # 3. Update index, even if they already exist since we want to refresh their timestamp.
-            self.index_manager.update([doc.id for doc in hashed_docs], index_start_time, source_ids=source_ids)
+            self.index_data_manager.update([doc.id for doc in hashed_docs], index_start_time, source_ids=source_ids)
 
             if clean_older_source:
                 for source_id in source_ids:
@@ -97,12 +97,12 @@ class Index(BaseModel):
                         raise AssertionError("Source ids cannot be None when clean_older_source = True.")
 
                 _source_ids = cast(Sequence[str], source_ids)
-                ids_to_delete = self.index_manager.list_keys(source_ids=_source_ids, before=index_start_time)
+                ids_to_delete = self.index_data_manager.list_keys(source_ids=_source_ids, before=index_start_time)
                 if ids_to_delete:
                     # 1. delete from vector store.
                     self.vector_store.delete(ids_to_delete)
                     # 2. delete from index manager.
-                    self.index_manager.delete(ids_to_delete)
+                    self.index_data_manager.delete(ids_to_delete)
                     num_deleted += len(ids_to_delete)
 
         return IndexingResult(num_added=num_added,
@@ -112,16 +112,16 @@ class Index(BaseModel):
 
     def delete(self, ids: List[str]) -> None:
         self.vector_store.delete(ids)
-        self.index_manager.delete(ids)
+        self.index_data_manager.delete(ids)
 
     def delete_by_source(self, source_id: str) -> List[str]:
-        ids = self.index_manager.list_keys(source_ids=[source_id])
+        ids = self.index_data_manager.list_keys(source_ids=[source_id])
         self.delete(ids)
         return ids
 
     def delete_all(self) -> None:
         self.vector_store.delete_all()
-        self.index_manager.delete_all()
+        self.index_data_manager.delete_all()
 
     class Config:
         arbitrary_types_allowed = True

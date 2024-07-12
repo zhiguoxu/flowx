@@ -10,7 +10,7 @@ from core.rag.document_loaders.loader import FileLoader
 class PDFLoader(FileLoader):
     split_by_pages: bool = True
 
-    def load(self) -> List[Document]:
+    def _load(self) -> List[Document]:
 
         with Path(self.file_path).open("rb") as fp:
             pdf = pypdf.PdfReader(fp)
@@ -20,11 +20,11 @@ class PDFLoader(FileLoader):
                 for index, page in enumerate(pdf.pages):
                     text = page.extract_text()
                     label = pdf.page_labels[index]
-                    docs.append(Document(text=text, metadata={**self.metadata, "page_label": label}))
+                    docs.append(Document(text=text, metadata={"page_label": label}))
             else:
                 text = ""
                 for page in pdf.pages:
                     text += page.extract_text()
-                docs.append(Document(text=text, metadata=self.metadata))
+                docs.append(Document(text=text))
 
         return docs

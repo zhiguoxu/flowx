@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, TypeVar, Any, Tuple, Dict
 
-from core.rag.document.document import Document, MetadataMode, MetadataMapping
+from core.rag.document.document import Document
 from core.utils.utils import filter_kwargs_by_method
 
 VectorStoreT = TypeVar("VectorStoreT", bound="VectorStore")
@@ -9,20 +9,11 @@ VectorStoreT = TypeVar("VectorStoreT", bound="VectorStore")
 
 class VectorStore(ABC):
     @abstractmethod
-    def add_texts(self,
-                  texts: List[str],
-                  metadatas: List[MetadataMapping] | None = None,
-                  ids: List[str] | None = None,
-                  batch_size: int = 100) -> List[str]:
-        ...
-
     def add_documents(self,
                       documents: List[Document],
                       ids: List[str] | None = None,
                       batch_size: int = 1_000) -> List[str]:
-        texts = [doc.get_content(MetadataMode.EMBED) for doc in documents]
-        metadatas = [doc.metadata for doc in documents]
-        return self.add_texts(texts, metadatas, ids, batch_size)
+        ...
 
     def search(self,
                query: str | None = None,
@@ -31,7 +22,7 @@ class VectorStore(ABC):
                filters: Dict[str, str] | None = None,
                where_document: Dict[str, str] | None = None,
                **kwargs: Any) -> List[Document]:
-        kwargs = filter_kwargs_by_method(self.mmr_search_with_score, {**locals(), **kwargs})
+        kwargs = filter_kwargs_by_method(self.mmr_search_with_score, {**locals(), **kwargs}, exclude={"kwargs"})
         docs_and_scores = self.search_with_score(**kwargs)
         return [doc for doc, _ in docs_and_scores]
 
