@@ -3,7 +3,7 @@ from typing import Sequence, Iterable, Set, Callable, cast, List
 from pydantic import BaseModel
 
 from core.rag.document.document import Document
-from core.rag.document_loader.loader import DocumentLoader
+from core.rag.document_loaders.loader import DocumentLoader
 from core.rag.indexing.index_manager import IndexManager
 from core.rag.indexing.utils import dedup_docs, HashedDocument
 from core.rag.utils import batch
