@@ -1,8 +1,5 @@
 from abc import abstractmethod, ABC
-from typing import List, Union
-
-import numpy as np
-from numpy._typing import NDArray
+from typing import List
 
 
 class Embeddings(ABC):
@@ -17,6 +14,3 @@ class Embeddings(ABC):
         https://github.com/openai/openai-cookbook/blob/main/examples/Embedding_long_inputs.ipynb
         and OpenAIEmbeddings._get_len_safe_embeddings
         """
-
-    def __call__(self, input: List[str] | NDArray[Union[np.uint, np.int_, np.float_]]) -> List[List[float]]:
-        return self.embed_documents(input)

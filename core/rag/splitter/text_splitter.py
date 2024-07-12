@@ -69,7 +69,7 @@ class TextSplitter(DocumentSplitter):
     @classmethod
     def check_separate_fn_list(cls, data: Any) -> Any:
         if not data.get("separate_fn_list"):
-            import nltk
+            import nltk  # type: ignore[import-untyped]
             sentence_seps = data.get("sentence_seps", DEFAULT_SENTENCE_SEPS)
             secondary_seps = data.get("secondary_seps", DEFAULT_SECONDARY_SEPS)
             token_seps = data.get("token_seps", DEFAULT_TOKEN_SEPS)

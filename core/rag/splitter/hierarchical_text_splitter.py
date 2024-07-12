@@ -1,4 +1,4 @@
-from typing import List, Callable
+from typing import List, Callable, Sequence
 
 from core.rag.document.document import Document
 from core.rag.splitter.text_splitter import TextSplitter, DocumentSplitter
@@ -14,19 +14,18 @@ class HierarchicalTextSplitter(DocumentSplitter):
 
     def __init__(self,
                  doc_splitters: List[DocumentSplitter] | None = None,
-                 chunk_sizes: List[int] | None = None,
+                 chunk_sizes: Sequence[int] = (2048, 512, 128),
                  chunk_overlap: int | None = None,
                  sentence_seps: str | None = None,
                  secondary_seps: str | None = None,
                  token_seps: str | None = None,
-                 separate_fn_list: List[Callable] = None,
+                 separate_fn_list: List[Callable] | None = None,
                  token_length_fn: Callable[[str], int] | None = None):
         if doc_splitters is None:
-            chunk_sizes = chunk_sizes or [2048, 512, 128]
             kwargs = filter_kwargs_by_method(TextSplitter.__init__, locals(), exclude_none=True)
             doc_splitters = [TextSplitter(chunk_size=chunk_size, **kwargs) for chunk_size in chunk_sizes]
 
-        super().__init__(doc_splitters=doc_splitters, chunk_sizes=chunk_sizes)
+        super().__init__(doc_splitters=doc_splitters, chunk_sizes=chunk_sizes)  # type: ignore[call-arg]
 
     def split_text(self, text: str, chunk_size: int | None = None) -> List[str]:
         raise NotImplementedError

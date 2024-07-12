@@ -2,18 +2,18 @@ import uuid
 from typing import Dict, Callable, List, Tuple, Any
 
 import numpy as np
-from chromadb import Settings
+from chromadb import Settings, Where, WhereDocument
 from chromadb.api.client import Client
 from chromadb.api.models.Collection import Collection
 from pydantic import BaseModel, Field
 
-from core.rag.document.document import Document
+from core.rag.document.document import Document, MetadataMapping
 from core.rag.embeddings.embeddings import Embeddings
 from core.rag.embeddings.huggingface.hf_embedding import HuggingfaceEmbeddings
 from core.rag.utils import batch3
 from core.rag.vectorstore.utils import mmr_top_k, calc_similarity
 from core.rag.vectorstore.vectorstore import VectorStore
-from core.utils.utils import filter_kwargs_by_pydantic, filter_kwargs_by_method
+from core.utils.utils import filter_kwargs_by_pydantic
 
 DEFAULT_COLLECTION_NAME = "flowx"
 
@@ -49,7 +49,7 @@ class Chroma(BaseModel, VectorStore):
 
     def add_texts(self,
                   texts: List[str],
-                  metadatas: List[dict] | None = None,
+                  metadatas: List[MetadataMapping] | None = None,
                   ids: List[str] | None = None,
                   batch_size: int = 100) -> List[str]:
         ret_ids = []
@@ -59,43 +59,42 @@ class Chroma(BaseModel, VectorStore):
 
     def _add_texts(self,
                    texts: List[str],
-                   metadatas: List[dict] | None = None,
+                   metadatas: List[MetadataMapping] | None = None,
                    ids: List[str] | None = None) -> List[str]:
         ids = ids or [str(uuid.uuid4()) for _ in texts]
         embeddings = self.embedding_function.embed_documents(texts)
         if not metadatas:
-            self.collection.upsert(embeddings=embeddings, documents=texts, ids=ids)
-            return ids
-
-        assert len(texts) == len(metadatas)
-        self.collection.upsert(metadatas=metadatas,
-                               embeddings=embeddings,
-                               documents=texts,
-                               ids=ids)
+            self.collection.upsert(embeddings=embeddings, documents=texts, ids=ids)  # type: ignore[arg-type]
+        else:
+            assert len(texts) == len(metadatas)
+            self.collection.upsert(metadatas=metadatas,
+                                   embeddings=embeddings,  # type: ignore[arg-type]
+                                   documents=texts,
+                                   ids=ids)
         return ids
 
     def search_with_score(self,
                           query: str | None = None,
                           embedding: List[float] | None = None,
                           k: int = 4,
-                          filters: Dict[str, str] | None = None,
-                          where_document: Dict[str, str] = None,
+                          where: Where | None = None,
+                          where_document: WhereDocument | None = None,
                           **kwargs: Any
                           ) -> List[Tuple[Document, float]]:  # [document, similarity score]
         if not embedding:
             assert query
             embedding = self.embedding_function.embed_query(query)
-        results = self.collection.query(query_embeddings=[embedding],
+        results = self.collection.query(query_embeddings=[embedding],  # type: ignore[arg-type]
                                         n_results=k,
-                                        where=filters,
+                                        where=where,
                                         where_document=where_document,
                                         **kwargs)
 
         return [(Document(text=result[0], metadata=result[1] or {}, id=result[2]), 1 - result[3])
-                for result in zip(results["documents"][0],
-                                  results["metadatas"][0],
+                for result in zip(results["documents"][0],  # type: ignore[index]
+                                  results["metadatas"][0],  # type: ignore[index]
                                   results["ids"][0],
-                                  results["distances"][0])]
+                                  results["distances"][0])]  # type: ignore[index]
 
     def mmr_search_with_score(self,
                               query: str | None = None,
@@ -103,8 +102,8 @@ class Chroma(BaseModel, VectorStore):
                               k: int = 5,
                               fetch_k: int = 20,
                               lambda_mult: float = 0.5,
-                              filters: Dict[str, str] | None = None,
-                              where_document: Dict[str, str] | None = None,
+                              where: Where | None = None,
+                              where_document: WhereDocument | None = None,
                               **kwargs: Any
                               ) -> List[Tuple[Document, float]]:  # [document, similarity score]
         if not embedding:
@@ -113,27 +112,28 @@ class Chroma(BaseModel, VectorStore):
 
         results = self.collection.query(query_embeddings=embedding,
                                         n_results=fetch_k,
-                                        where=filters,
+                                        where=where,
                                         where_document=where_document,
                                         include=["metadatas", "documents", "distances", "embeddings"],
                                         **kwargs)
 
         mmr_selected = mmr_top_k(np.array(embedding, dtype=np.float32),
-                                 results["embeddings"][0],
+                                 results["embeddings"][0],  # type: ignore[index, arg-type]
                                  similarity_fn=self.similarity_fn,
                                  top_k=k,
                                  lambda_mult=lambda_mult)
 
-        return [(Document(text=results["documents"][0][index],
-                          metadata=results["metadatas"][0][index] or {},
+        return [(Document(text=results["documents"][0][index],  # type: ignore[index]
+                          metadata=results["metadatas"][0][index] or {},  # type: ignore[index]
                           id=results["ids"][0][index]), score)
                 for index, score in zip(*mmr_selected)]
 
     def delete(self,
                ids: List[str] | None = None,
-               filters: Dict[str, str] | None = None,
-               where_document: Dict[str, str] | None = None) -> None:
-        self.collection.delete(ids=ids, where=filters, where_document=where_document)
+               where: Where | None = None,
+               where_document: WhereDocument | None = None,
+               **kwargs: Any) -> None:
+        self.collection.delete(ids=ids, where=where, where_document=where_document)
 
     def delete_all(self):
         name = self.collection.name

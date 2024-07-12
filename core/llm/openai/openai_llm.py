@@ -90,5 +90,4 @@ class OpenAILLM(LLM):
     @property
     def tokenizer(self) -> Callable[[str], List[int]]:
         self._tokenizer = self._tokenizer or get_tokenizer(self.model)
-        assert self._tokenizer
         return self._tokenizer

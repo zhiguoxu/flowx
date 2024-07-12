@@ -114,7 +114,7 @@ class Index(BaseModel):
         self.vector_store.delete(ids)
         self.index_manager.delete(ids)
 
-    def delete_by_source(self, source_id: str | None = None) -> List[str]:
+    def delete_by_source(self, source_id: str) -> List[str]:
         ids = self.index_manager.list_keys(source_ids=[source_id])
         self.delete(ids)
         return ids
@@ -133,7 +133,7 @@ def _get_source_id_assigner(source_id_key: str | Callable[[Document], str] | Non
     if source_id_key is None:
         return lambda doc: None
     elif isinstance(source_id_key, str):
-        return lambda doc: doc.metadata[source_id_key]
+        return lambda doc: str(doc.metadata[source_id_key])
     elif callable(source_id_key):
         return source_id_key
     else:

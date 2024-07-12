@@ -16,7 +16,7 @@ def get_tokenizer(model: str) -> Callable[[str], List[int]]:
         ...
     try:
         # try huggingface
-        from transformers import AutoTokenizer
+        from transformers import AutoTokenizer  # type: ignore[import-untyped]
         hf_tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
         return partial(hf_tokenizer.encode, add_special_tokens=False)
     except Exception as e:

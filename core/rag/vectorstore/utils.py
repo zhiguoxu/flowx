@@ -34,10 +34,10 @@ def calc_similarity(query_embedding: np.ndarray,
         return product / (norm1 * norm2)
 
 
-def similarity_top_k(query_embedding: np.ndarray | List[List[float]],
-                     embedding_list: np.ndarray | List[List[float]],
+def similarity_top_k(query_embedding: np.ndarray | List[List[int]],
+                     embedding_list: np.ndarray | List[List[int]],
                      similarity_fn: Callable[..., np.ndarray] = calc_similarity,
-                     top_k: int | None = 5,
+                     top_k: int = 5,
                      score_threshold: float = sys.float_info.min,
                      ) -> Tuple[List[int], List[float]]:
     if len(query_embedding) == 0 or len(embedding_list) == 0:
@@ -54,11 +54,11 @@ def similarity_top_k(query_embedding: np.ndarray | List[List[float]],
     return top_k_indices.tolist(), scores
 
 
-def mmr_top_k(query_embedding: np.ndarray | List[float],
-              embedding_list: np.ndarray | List[List[float]],
+def mmr_top_k(query_embedding: np.ndarray | List[int],
+              embedding_list: np.ndarray | List[List[int]],
               similarity_fn: Callable[..., np.ndarray] = calc_similarity,
               lambda_mult: float = 0.5,
-              top_k: int | None = 5) -> Tuple[List[int], List[float]]:
+              top_k: int = 5) -> Tuple[List[int], List[float]]:  # [index list, score list]
     """mmr = maximal marginal relevance"""
 
     if min(top_k, len(embedding_list)) <= 0:

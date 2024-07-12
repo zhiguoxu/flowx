@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import uuid
 from enum import Enum, auto
-from typing import List, Dict, Mapping, Sequence
+from typing import List, Dict, Mapping
 
 from pydantic import BaseModel, Field
 
-MetadataValueType = str | int | float | bool | Sequence[str | int | float]
+MetadataValueType = str | int | float | bool
+MetadataMapping = Mapping[str, MetadataValueType]
 
 
 class MetadataMode(str, Enum):
@@ -25,13 +26,13 @@ class DocRelationType(str, Enum):
 
 class RelatedDocInfo(BaseModel):
     doc_id: str
-    metadata: Mapping[str, MetadataValueType]
+    metadata: MetadataMapping
 
 
 class Document(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     text: str
-    metadata: Dict[str, MetadataValueType] = Field(default_factory=dict)
+    metadata: MetadataMapping = Field(default_factory=dict)
 
     excluded_embed_metadata_keys: List[str] = Field(
         default_factory=list,
