@@ -71,7 +71,8 @@ class Chroma(BaseModel, VectorStore):
     def search_with_score(self,
                           query: str | None = None,
                           embedding: List[float] | None = None,
-                          k: int = 4,
+                          top_k: int = 4,
+                          score_threshold: float | None = None,
                           where: Where | None = None,
                           where_document: WhereDocument | None = None,
                           **kwargs: Any
@@ -80,25 +81,28 @@ class Chroma(BaseModel, VectorStore):
             assert query
             embedding = self.embedding_function.embed_query(query)
         results = self.collection.query(query_embeddings=[embedding],  # type: ignore[arg-type]
-                                        n_results=k,
+                                        n_results=top_k,
                                         where=where,
                                         where_document=where_document,
                                         **kwargs)
 
-        doc_scores = []
+        doc_and_scores = []
         for doc_id, text, metadata, distance in zip(results["ids"][0],
                                                     results["documents"][0],  # type: ignore[index]
                                                     results["metadatas"][0],  # type: ignore[index]
                                                     results["distances"][0]):  # type: ignore[index]
             metadata = dict(metadata)
             others = json.loads(metadata.pop("others"))
-            doc_scores.append((Document(id=doc_id, text=text, metadata=metadata, **others), 1 - distance))
-        return doc_scores
+            score = 1 - distance
+            if score_threshold is None or score >= score_threshold:
+                doc_and_scores.append((Document(id=doc_id, text=text, metadata=metadata, **others), score))
+        return doc_and_scores
 
     def mmr_search_with_score(self,
                               query: str | None = None,
                               embedding: List[float] | None = None,
-                              k: int = 5,
+                              top_k: int = 5,
+                              score_threshold: float | None = None,
                               fetch_k: int = 20,
                               lambda_mult: float = 0.5,
                               where: Where | None = None,
@@ -119,16 +123,17 @@ class Chroma(BaseModel, VectorStore):
         mmr_selected = mmr_top_k(np.array(embedding, dtype=np.float32),
                                  results["embeddings"][0],  # type: ignore[index, arg-type]
                                  similarity_fn=self.similarity_fn,
-                                 top_k=k,
+                                 top_k=top_k,
                                  lambda_mult=lambda_mult)
-        doc_scores = []
+        doc_and_scores = []
         for index, score in zip(*mmr_selected):
             doc_id = results["ids"][0][index]
             text = results["documents"][0][index]  # type: ignore[index]
             metadata = dict(results["metadatas"][0][index])  # type: ignore[index]
             others = json.loads(metadata.pop("others"))
-            doc_scores.append((Document(id=doc_id, text=text, metadata=metadata, **others), score))
-        return doc_scores
+            if score_threshold is None or score >= score_threshold:
+                doc_and_scores.append((Document(id=doc_id, text=text, metadata=metadata, **others), score))
+        return doc_and_scores
 
     def delete(self,
                ids: List[str] | None = None,
