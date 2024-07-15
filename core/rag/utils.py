@@ -63,3 +63,8 @@ def batch3(size: int,
         if not chunk:
             return
         yield chunk, chunk2, chunk3
+
+
+def repeat(value: Any):
+    while True:
+        yield value

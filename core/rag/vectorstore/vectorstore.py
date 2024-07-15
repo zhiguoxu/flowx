@@ -45,6 +45,7 @@ class VectorStore(ABC):
                    query: str | None = None,
                    embedding: List[float] | None = None,
                    top_k: int = 5,
+                   score_threshold: float | None = None,
                    fetch_k: int = 20,
                    lambda_mult: float = 0.5,
                    **kwargs: Any) -> List[Document]:
@@ -55,6 +56,7 @@ class VectorStore(ABC):
             query: Query str.
             embedding: Query embedding.
             top_k: Number of documents to return (default: 5).
+            score_threshold: Doc's score less than it will be filtered.
             fetch_k: Number of documents to fetch for MMR (default: 20).
             lambda_mult: Controls diversity (0 = max diversity, 1 = min diversity, default: 0.5).
         Returns: List of selected documents and scores.
@@ -68,6 +70,7 @@ class VectorStore(ABC):
                               query: str | None = None,
                               embedding: List[float] | None = None,
                               top_k: int = 5,
+                              score_threshold: float | None = None,
                               fetch_k: int = 20,
                               lambda_mult: float = 0.5,
                               **kwargs: Any
@@ -80,6 +83,14 @@ class VectorStore(ABC):
 
     @abstractmethod
     def delete_all(self):
+        ...
+
+    @abstractmethod
+    def get(self,
+            ids: List[str] | None = None,
+            limit: int | None = None,
+            offset: int | None = None,
+            **kwargs: Any) -> List[Document]:
         ...
 
     def as_retriever(self,

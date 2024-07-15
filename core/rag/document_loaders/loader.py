@@ -53,6 +53,7 @@ class FileLoader(BaseModel, DocumentLoader):
         return return_docs
 
     def _load(self) -> List[Document]:
+        """Please override this method when implementing subclass."""
         logger.warning(f"Use default loader for {self.file_path}")
         text = Path(self.file_path).read_text(encoding=self.encoding, errors="ignore")
         return [Document(text=text)]

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from core.rag.document.document import Document, MetadataMode
 from core.rag.embeddings.embeddings import Embeddings
 from core.rag.embeddings.huggingface.hf_embedding import HuggingfaceEmbeddings
-from core.rag.utils import batch3, batch2
+from core.rag.utils import batch3, batch2, repeat
 from core.rag.vectorstore.utils import mmr_top_k, calc_similarity
 from core.rag.vectorstore.vectorstore import VectorStore
 from core.utils.utils import filter_kwargs_by_pydantic
@@ -149,6 +149,28 @@ class Chroma(BaseModel, VectorStore):
         self.collection = self.client.get_or_create_collection(name=name,
                                                                metadata=metadata,
                                                                embedding_function=None)
+
+    def get(self,
+            ids: List[str] | None = None,
+            limit: int | None = None,
+            offset: int | None = None,
+            where: Where | None = None,
+            where_document: WhereDocument | None = None,
+            **kwargs: Any) -> List[Document]:
+        results = self.collection.get(ids=ids,
+                                      limit=limit,
+                                      offset=offset,
+                                      where=where,
+                                      where_document=where_document,
+                                      **kwargs)
+        docs = []
+        for doc_id, text, metadata in zip(results["ids"],
+                                          results["documents"] or repeat(None),  # type: ignore[index]
+                                          results["metadatas"] or repeat(None)):  # type: ignore[index]
+            metadata = dict(metadata)
+            others = json.loads(metadata.pop("others"))
+            docs.append(Document(id=doc_id, text=text, metadata=metadata, **others))
+        return docs
 
     class Config:
         arbitrary_types_allowed = True
