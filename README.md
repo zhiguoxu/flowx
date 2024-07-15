@@ -1,4 +1,4 @@
-English | [简体中文](README_zh-CN.md)
+English | [简体中文](README_zh-CN.md) | [日本語](README_ja-JP.md)
 
 
 # FlowX
