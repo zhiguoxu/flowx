@@ -11,7 +11,7 @@ from core.logging import get_logger
 from core.messages.chat_message import ChatMessage, Role
 
 if TYPE_CHECKING:
-    from core.prompts.message_list_template import MessageListTemplate
+    from core.prompts.chat_template import ChatTemplate
 
 logger = get_logger(__name__)
 
@@ -63,9 +63,9 @@ class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
     def input_vars(self) -> set[str]:
         return {var_name for _, var_name, _, _ in Formatter().parse(self.template) if var_name is not None}
 
-    def __add__(self, other: Any) -> MessageListTemplate:
-        from core.prompts.message_list_template import MessageListTemplate
-        return MessageListTemplate(messages=[self]) + other
+    def __add__(self, other: Any) -> ChatTemplate:
+        from core.prompts.chat_template import ChatTemplate
+        return ChatTemplate(messages=[self]) + other
 
 
 def validate_template_vars(inp: str | Dict, template_vars: set[str]) -> Dict:

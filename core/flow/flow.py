@@ -284,7 +284,7 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
         keys = [keys] if isinstance(keys, str) else keys
         return self | PickFlow(drop_keys=keys)
 
-    def assign(self, **kwargs: FlowLike[Input, Any]) -> SequenceFlow[Input, Dict[str, Any]]:
+    def assign(self, **kwargs: FlowLike[Input, Any]) -> Flow[Input, Dict[str, Any]]:
         return self | ParallelFlow(steps=kwargs, steps_without_key=[identity.drop(list(kwargs.keys()))])
 
     def with_listeners(self,
@@ -301,6 +301,20 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
             yield run
         finally:
             var_run_cache.get().pop(self.id)
+
+    def _get_local_config(self, extra_local_config: Dict | FlowConfig | None = None) -> FlowConfig | None:
+        local_config = var_local_config.get()
+        if local_config is None:
+            if extra_local_config is None:
+                return None
+            if isinstance(extra_local_config, FlowConfig):
+                return extra_local_config
+            return FlowConfig(**extra_local_config)  # type: ignore[arg-type]
+        else:
+            if extra_local_config is None:
+                return local_config
+            else:
+                return local_config.merge(extra_local_config)
 
 
 class FunctionFlow(Flow[Input, Output]):
@@ -564,7 +578,6 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         super().__init__(**init_kwargs)
 
     def invoke(self, inp: Input, **kwargs: Any) -> Output:
-
         return self._get_bound().invoke(inp, self._get_local_config(), **{**self.kwargs, **kwargs})
         # Not every invoke accept **kwargs, so if you bind kwargs, it must be accepted by inner flow.
 
@@ -582,12 +595,9 @@ class BindingFlow(BindingFlowBase[Input, Output]):
             local_config=self.local_config
         )
 
-    def _get_local_config(self) -> FlowConfig | None:
-        local_config = var_local_config.get()
-        if local_config and self.local_config:
-            return local_config.merge(self.local_config)
-
-        return local_config or self.local_config
+    def _get_local_config(self, extra_local_config: Dict | FlowConfig | None = None) -> FlowConfig | None:
+        assert extra_local_config is None
+        return super()._get_local_config(self.local_config)
 
     def _get_bound(self) -> Flowable[Input, Output]:
         configurable = get_cur_config().configurable
@@ -640,6 +650,9 @@ class IdentityFlow(Flow[Other, Other]):
 
     def transform(self, inp: Iterator[Other]) -> Iterator[Other]:
         yield from inp
+
+    def assign(self, **kwargs: FlowLike[Input, Any]) -> ParallelFlow[Input]:
+        return ParallelFlow(steps=kwargs, steps_without_key=[identity.drop(list(kwargs.keys()))])
 
 
 class FixOutputFlow(Flow[Any, Output]):

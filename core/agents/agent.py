@@ -120,7 +120,6 @@ class Agent(Flow[LLMInput, ChatMessage]):
             current_run().update_extra_data(intermedia_steps=intermediate_steps)
 
     def chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
-        # If stream = False, _run_loop only return iter of ChatMessage.
         message_stream = self._run_loop(messages, False, **kwargs)
         return ChatResult(messages=cast(List[ChatMessage], list(message_stream)))
 

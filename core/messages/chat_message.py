@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from core.utils.utils import add
 
 if TYPE_CHECKING:
-    from core.prompts.message_list_template import MessageListTemplate
+    from core.prompts.chat_template import ChatTemplate
 
 
 class Function(BaseModel):
@@ -54,9 +54,9 @@ class ChatMessage(BaseModel):
     finish_reason: Literal["stop", "length", "tool_calls", "content_filter"] | str | None = None
     extra_data: Any = None
 
-    def __add__(self, other: Any) -> MessageListTemplate:
-        from core.prompts.message_list_template import MessageListTemplate
-        return MessageListTemplate(messages=[self]) + other
+    def __add__(self, other: Any) -> ChatTemplate:
+        from core.prompts.chat_template import ChatTemplate
+        return ChatTemplate(messages=[self]) + other
 
 
 class FunctionChunk(BaseModel):

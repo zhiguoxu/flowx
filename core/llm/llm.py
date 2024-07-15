@@ -18,7 +18,7 @@ from core.llm.types import TokenUsage
 from core.logging import get_logger
 from core.messages.chat_message import ChatMessage, ChatMessageChunk, Role
 from core.messages.utils import to_chat_message, MessageLike
-from core.prompts.message_list_template import MessageListTemplate, MessagesPlaceholder
+from core.prompts.chat_template import ChatTemplate, MessagesPlaceholder
 from core.tool import Tool, to_tool, ToolLike
 from core.utils.utils import add, filter_kwargs_by_pydantic
 
@@ -111,8 +111,8 @@ class LLM(Flow[LLMInput, ChatMessage]):
                      history_factory_config: Sequence[ConfigurableField] | None = None
                      ) -> LLMWithHistory[ChatMessage]:
         from core.llm.llm_with_history import LLMWithHistory
-        prompt = MessageListTemplate.from_messages([
-            MessagesPlaceholder(var_name="input")
+        prompt = ChatTemplate.from_messages([
+            MessagesPlaceholder("input")
         ])
 
         bound = prompt.pipe(self, main=True)
@@ -154,17 +154,17 @@ class LLM(Flow[LLMInput, ChatMessage]):
                                                   return_dict=return_type == "dict",
                                                   return_first=True)
         if include_raw:  # return dict with keys "raw", "parsed", and "parsing_error"
-            base_parser = identity.assign(parsed=itemgetter("raw") | message_parser, parsing_error=None)
-            none_parser = identity.assign(parsed=None)
+            base_parser: Flow = identity.assign(parsed=itemgetter("raw") | message_parser, parsing_error=None)
+            none_parser: Flow = identity.assign(parsed=None)
             parser_with_fallback = base_parser.with_fallbacks([none_parser], exception_key="parsing_error")
             return ParallelFlow(raw=llm) | parser_with_fallback  # type: ignore[return-value]
         else:
             return llm | message_parser
 
-    @abstractmethod
     @property
     def tokenizer(self) -> Callable[[str], List[int]]:
         """Used to count the number of tokens in documents to constrain them to be under a certain limit."""
+        raise NotImplemented
 
     def token_length(self, text: str):
         return len(self.tokenizer(text))

@@ -10,6 +10,8 @@ from core.utils.utils import pydantic_to_dict
 
 
 class FlowConfig(BaseModel):
+    run_name: str | None = None
+
     recursion_limit: int = 20
     """Maximum number of times a call can recurse. (must inheritable)"""
 

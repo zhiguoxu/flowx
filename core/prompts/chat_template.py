@@ -8,16 +8,16 @@ from core.messages.utils import MessageLike, to_chat_message
 from core.prompts.message_template import MessageTemplate, validate_template_vars
 
 
-class MessageListTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
+class ChatTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
     messages: List[MessageTemplateLike]
 
     @classmethod
     def from_messages(cls,
                       messages: Sequence[str | List[str] | Tuple[str, str] | MessageTemplateLike]
-                      ) -> MessageListTemplate:
+                      ) -> ChatTemplate:
         messages_: List[MessageTemplateLike] = []
         for msg in messages:
-            if isinstance(msg, ChatMessage | MessageTemplate | MessageListTemplate | MessagesPlaceholder):
+            if isinstance(msg, ChatMessage | MessageTemplate | ChatTemplate | MessagesPlaceholder):
                 messages_.append(msg)
             elif isinstance(msg, (list, tuple)) and msg[0] == "placeholder":
                 assert len(msg) >= 2
@@ -35,7 +35,7 @@ class MessageListTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
 
     def partial_format(self, **kwargs: Any):
         for msg in self.messages:
-            if isinstance(msg, (MessageTemplate, MessageListTemplate)):
+            if isinstance(msg, (MessageTemplate, ChatTemplate)):
                 msg.partial_format(**kwargs)
 
     def format(self, arg: str | None = None, **kwargs: Any) -> List[ChatMessage]:
@@ -50,7 +50,7 @@ class MessageListTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
                 ret.append(msg)
             elif isinstance(msg, MessageTemplate):
                 ret.append(msg.format(**kwargs))
-            elif isinstance(msg, (MessageListTemplate, MessagesPlaceholder)):
+            elif isinstance(msg, (ChatTemplate, MessagesPlaceholder)):
                 ret.extend(msg.format(**kwargs))
             else:
                 raise TypeError(f"message type error: {msg}")
@@ -60,21 +60,21 @@ class MessageListTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
     def input_vars(self) -> set[str]:
         ret = set()
         for msg in self.messages:
-            if isinstance(msg, (MessageTemplate, MessageListTemplate)):
+            if isinstance(msg, (MessageTemplate, ChatTemplate)):
                 ret.update(msg.input_vars)
             elif isinstance(msg, MessagesPlaceholder):
                 ret.add(msg.var_name)
         return ret
 
-    def __add__(self, other: str | List[str] | Tuple[str, str] | MessageTemplateLike) -> MessageListTemplate:
+    def __add__(self, other: str | List[str] | Tuple[str, str] | MessageTemplateLike) -> ChatTemplate:
         # Allow for easy combining.
-        if isinstance(other, MessageListTemplate):
-            return MessageListTemplate(messages=self.messages + other.messages)
+        if isinstance(other, ChatTemplate):
+            return ChatTemplate(messages=self.messages + other.messages)
         elif isinstance(other, (ChatMessage, MessageTemplate, MessagesPlaceholder)):
-            return MessageListTemplate(messages=self.messages + [other])
+            return ChatTemplate(messages=self.messages + [other])
         elif isinstance(other, (str, list, tuple)):
-            other = MessageListTemplate.from_messages(other)
-            return MessageListTemplate(messages=self.messages + other.messages)
+            other = ChatTemplate.from_messages(other)
+            return ChatTemplate(messages=self.messages + other.messages)
         else:
             raise NotImplementedError(f"Unsupported operand type for +: {type(other)}")
 
@@ -90,6 +90,9 @@ class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
     optional: bool = False
     """If True, format can be called without arguments and will return an empty list.
      If False, a var_name argument must be provided, even if it's an empty list."""
+
+    def __init__(self, var_name: str, optional: bool = False):
+        super().__init__(var_name=var_name, optional=optional)  # type: ignore[call-arg]
 
     def invoke(self, inp: PlaceholderInput) -> List[ChatMessage]:
         return self.to_chat_messages(inp)
@@ -127,4 +130,4 @@ class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
         return list(map(to_chat_message, inp))
 
 
-MessageTemplateLike = ChatMessage | MessageTemplate | MessageListTemplate | MessagesPlaceholder
+MessageTemplateLike = ChatMessage | MessageTemplate | ChatTemplate | MessagesPlaceholder

@@ -110,7 +110,8 @@ class LLMWithHistory(BindingFlowBase[Input, Output]):
             output = output[self.output_messages_key]
         assert isinstance(output, ChatMessage)
         # If it is intermediate message, don't save it.
-        # Agent will handler the intermediate messages.
+        # Agent will handler the intermediate messages and invoke llm in the next round
+        # with intermediate messages, and all the message will be saved finally.
         if output.tool_calls:
             return
 

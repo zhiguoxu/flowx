@@ -48,11 +48,7 @@ class RetryFlow(BindingFlowBase[Input, Output]):
                 attempt_number = attempt.retry_state.attempt_number
                 local_config = var_local_config.get()
                 if attempt_number > 1:
-                    retry_config = {"tags": [f"retry:attempt:{attempt_number}"]}
-                    if local_config:
-                        local_config = local_config.merge(retry_config)
-                    else:
-                        local_config = FlowConfig(**retry_config)  # type: ignore[arg-type]
+                    local_config = self._get_local_config({"tags": [f"retry:attempt:{attempt_number}"]})
                 result = self.bound.invoke(inp, local_config, **kwargs)
         return result
 
