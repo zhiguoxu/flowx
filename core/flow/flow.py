@@ -276,8 +276,7 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
         kwargs = filter_kwargs_by_pydantic(FlowWithFallbacks, locals())
         return FlowWithFallbacks(bound=self, **kwargs)
 
-    def pick(self, keys: str | List[str]) -> SequenceFlow[Input, Dict[str, Any]]:
-        keys = [keys] if isinstance(keys, str) else keys
+    def pick(self, *keys: str) -> SequenceFlow[Input, Dict[str, Any]]:
         return self | PickFlow(keys=keys)
 
     def drop(self, keys: str | List[str]) -> SequenceFlow[Input, Dict[str, Any]]:

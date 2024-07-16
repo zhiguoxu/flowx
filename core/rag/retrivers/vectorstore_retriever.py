@@ -2,7 +2,6 @@ from typing import Literal, List, Dict, Any, Tuple
 
 from pydantic import Field
 
-from core.callbacks.run_stack import current_run
 from core.rag.document.document import Document
 from core.rag.retrivers.retriever import Retriever
 from core.rag.vectorstore.vectorstore import VectorStore

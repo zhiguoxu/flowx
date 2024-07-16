@@ -3,6 +3,7 @@ from json import JSONDecodeError
 from typing import Dict, Any, List, Type, Union, Iterator
 
 import jsonpatch  # type: ignore[import-untyped]
+from pydantic import Field
 from pydantic.main import BaseModel
 
 from core.flow.flow import Flow
@@ -14,8 +15,11 @@ Output = Union[BaseModel, List[BaseModel], Dict[str, Any], List[Dict[str, Any]]]
 
 
 class MessagePydanticOutParser(Flow[ChatMessage, Output]):
-    schemas: List[Type[BaseModel]]
-    """A pydantic class describe the output data schema"""
+    schemas: List[Type[BaseModel]] = Field(default_factory=list)
+    """
+    A pydantic class describe the output data schema.
+    If return_dict = True, schemas is not necessary.
+    """
 
     return_dict: bool = False
     """
