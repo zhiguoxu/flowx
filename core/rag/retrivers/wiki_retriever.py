@@ -2,7 +2,7 @@ from typing import List, Tuple, Iterator
 
 from pydantic import model_validator
 from typing_extensions import Self
-from wikipedia import WikipediaPage
+from wikipedia import WikipediaPage  # type: ignore[import-untyped]
 import wikipedia
 
 from core.rag.document.document import Document
@@ -23,7 +23,7 @@ class WikiRetriever(Retriever):
 
     def lazy_load(self, query: str) -> Iterator[Document]:
         page_titles = wikipedia.search(query[:self.max_query_length], results=self.top_k)
-        for page_title in page_titles[: self.top_k_results]:
+        for page_title in page_titles[: self.top_k]:
             if wiki_page := self._fetch_page(page_title):
                 if doc := self._page_to_document(page_title, wiki_page):
                     yield doc
@@ -31,8 +31,9 @@ class WikiRetriever(Retriever):
     def invoke(self, query: str) -> List[Document]:
         return list(self.lazy_load(query))
 
-    def stream(self, query: str) -> Iterator[Document]:
-        yield from self.lazy_load(query)
+    def stream(self, query: str) -> Iterator[List[Document]] :
+        for doc in self.lazy_load(query):
+            yield [doc]
 
     def invoke_with_scores(self, query: str) -> List[Tuple[Document, float]]:
         raise NotImplementedError

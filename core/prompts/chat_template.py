@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple, Sequence, Any, Union
 
-from core.flow.flow import Flow
 from core.messages.chat_message import ChatMessage, Role
 from core.messages.utils import MessageLike, to_chat_message
-from core.prompts.message_template import MessageTemplate, validate_template_vars
+from core.prompts.message_template import MessageTemplate, validate_template_vars, PromptTemplate
 
 
-class ChatTemplate(Flow[Union[str, Dict[str, Any]], List[ChatMessage]]):
+class ChatTemplate(PromptTemplate[str, List[ChatMessage]]):
     messages: List[MessageTemplateLike]
 
     @classmethod
@@ -83,7 +82,7 @@ MessageLikeInput = Union[MessageLike, Sequence[MessageLike]]
 PlaceholderInput = Union[MessageLikeInput, Dict[str, MessageLikeInput]]
 
 
-class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
+class MessagesPlaceholder(PromptTemplate[MessageLikeInput, List[ChatMessage]]):
     var_name: str
     """Name of variable to use as messages."""
 
@@ -97,7 +96,10 @@ class MessagesPlaceholder(Flow[PlaceholderInput, List[ChatMessage]]):
     def invoke(self, inp: PlaceholderInput) -> List[ChatMessage]:
         return self.to_chat_messages(inp)
 
-    def format(self, arg: PlaceholderInput | None = None, **kwargs: MessageLikeInput) -> List[ChatMessage]:
+    def partial_format(self, **kwargs: Any) -> MessagesPlaceholder:
+        raise NotImplementedError
+
+    def format(self, arg: MessageLikeInput | None = None, **kwargs: MessageLikeInput) -> List[ChatMessage]:
         if arg is not None:
             assert len(kwargs) == 0
             return self.to_chat_messages(arg)

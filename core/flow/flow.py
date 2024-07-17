@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awaitable, AsyncIterator, Union, \
     List, Dict, Type, Tuple, TYPE_CHECKING, Sequence
 
-from pydantic import BaseModel, Field, model_validator, GetCoreSchemaHandler, field_validator
+from pydantic import BaseModel, Field, model_validator, GetCoreSchemaHandler
 from pydantic_core import core_schema
 from typing_extensions import Self
 
@@ -120,7 +120,7 @@ class Flowable(Generic[Input, Output], ABC):
         """Add fallbacks to a flow."""
 
     @abstractmethod
-    def pick(self, keys: List[str]) -> Flowable[Input, Dict[str, Any]]:
+    def pick(self, *keys: str) -> Flowable[Input, Dict[str, Any]]:
         """Pick keys from the dict output of this flow."""
 
     @abstractmethod
@@ -277,7 +277,7 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
         return FlowWithFallbacks(bound=self, **kwargs)
 
     def pick(self, *keys: str) -> SequenceFlow[Input, Dict[str, Any]]:
-        return self | PickFlow(keys=keys)
+        return self | PickFlow(keys=list(keys))
 
     def drop(self, keys: str | List[str]) -> SequenceFlow[Input, Dict[str, Any]]:
         keys = [keys] if isinstance(keys, str) else keys

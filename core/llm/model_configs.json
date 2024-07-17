@@ -1,0 +1,97 @@
+{
+  "gpt-4o": {
+    "context_window": 128000,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-4-turbo": {
+    "context_window": 128000,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-4-turbo-2024-04-09": {
+    "context_window": 128000,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-4-turbo-preview": {
+    "context_window": 128000,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-4-0125-preview": {
+    "context_window": 128000,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-4-1106-preview": {
+    "context_window": 128000,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-4-vision-preview": {
+    "context_window": 128000,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-4": {
+    "context_window": 8192,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-4-0613": {
+    "context_window": 8192,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-4-32k": {
+    "context_window": 32768,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-4-32k-0613": {
+    "context_window": 32768,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-3.5-turbo-0125": {
+    "context_window": 16385,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-3.5-turbo": {
+    "context_window": 16385,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-3.5-turbo-1106": {
+    "context_window": 16385,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-3.5-turbo-instruct": {
+    "context_window": 4096,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-3.5-turbo-16k": {
+    "context_window": 16385,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-3.5-turbo-0613": {
+    "context_window": 4096,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "gpt-3.5-turbo-16k-0613": {
+    "context_window": 16385,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  },
+  "default": {
+    "context_window": 8192,
+    "is_chat_model": true,
+    "support_tool_calls": true
+  }
+}

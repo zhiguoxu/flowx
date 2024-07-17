@@ -33,6 +33,8 @@ logger = get_logger(__name__)
 
 
 class LLM(Flow[LLMInput, ChatMessage]):
+    model: str
+
     max_new_tokens: int = Field(
         default=512,
         description="Number of tokens the model can output when generating a response.",
@@ -166,7 +168,7 @@ class LLM(Flow[LLMInput, ChatMessage]):
         """Used to count the number of tokens in documents to constrain them to be under a certain limit."""
         raise NotImplemented
 
-    def token_length(self, text: str):
+    def token_length(self, text: str) -> int:
         return len(self.tokenizer(text))
 
     class Config:

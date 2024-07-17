@@ -15,3 +15,6 @@ class Retriever(Flow[str, List[Document]], ABC):
     @abstractmethod
     def invoke_with_scores(self, query: str) -> List[Tuple[Document, float]]:
         ...
+
+
+RetrieverLike = Retriever | Flow[str, List[Document]]

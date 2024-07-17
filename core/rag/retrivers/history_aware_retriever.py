@@ -7,7 +7,7 @@ from core.llm.message_parser import StrOutParser
 from core.messages.chat_message import ChatMessage
 from core.prompts.chat_template import ChatTemplate, MessagesPlaceholder
 from core.rag.document.document import Document
-from core.rag.retrivers.retriever import Retriever
+from core.rag.retrivers.retriever import Retriever, RetrieverLike
 
 contextualize_q_system_prompt = """Given a chat history and the latest user question \
 which might reference context in the chat history, formulate a standalone question \
@@ -24,7 +24,7 @@ default_contextualize_q_prompt = ChatTemplate.from_messages(
 
 
 def create_history_aware_retriever(llm: Flow[LLMInput, ChatMessage],
-                                   retriever: Retriever,
+                                   retriever: RetrieverLike,
                                    prompt: ChatTemplate = default_contextualize_q_prompt
                                    ) -> Flow[Dict[str, Any], List[Document]]:
     """

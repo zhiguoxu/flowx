@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import itertools
+from abc import ABC, abstractmethod
 from string import Formatter
-from typing import Dict, Tuple, Any, Union, List, TYPE_CHECKING
+from typing import Dict, Tuple, Any, Union, List, TYPE_CHECKING, TypeVar
 
 from pydantic import Field
 
@@ -15,41 +16,40 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+Input = TypeVar("Input", contravariant=True)
+Output = TypeVar("Output", covariant=True)
+T = TypeVar("T")
 
-class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
-    role: Role
-    template: str
+
+class PromptTemplate(Flow[Union[Input, Dict], Output], ABC):
+    @abstractmethod
+    def partial_format(self: T, **kwargs: Any) -> T:
+        ...
+
+    @abstractmethod
+    def format(self, arg: Input | None = None, **kwargs: Any) -> Output:
+        ...
+
+
+class StrTemplate(PromptTemplate[str, str]):
     partial_vars: Dict[str, Any] = Field(default_factory=dict)
+    template: str
 
-    @classmethod
-    def ai_message(cls, template: str):
-        return cls(role=Role.ASSISTANT, template=template)
+    def __init__(self, template: str):
+        super().__init__(template=template)  # type: ignore[call-arg]
 
-    @classmethod
-    def user_message(cls, template: str):
-        return cls(role=Role.USER, template=template)
-
-    @classmethod
-    def from_arg(cls, arg: str | List[str] | Tuple[str, str] | Dict[str, Any]):
-        if isinstance(arg, str):
-            return cls(role=Role.USER, template=arg)
-        if isinstance(arg, dict):
-            return cls(role=Role.from_name(arg["role"]), template=arg["content"])
-        assert isinstance(arg, (list, tuple)) and len(arg) == 2
-        return cls(role=Role.from_name(arg[0]), template=arg[1])
-
-    def invoke(self, inp: str | Dict) -> ChatMessage:
+    def invoke(self, inp: str | Dict) -> str:
         inp = validate_template_vars(inp, self.input_vars)
         return self.format(**inp)
 
-    def partial_format(self, **kwargs: Any) -> MessageTemplate:
+    def partial_format(self, **kwargs: Any) -> StrTemplate:
         ret = self.model_copy(deep=True)
         input_vars = self.input_vars
         kwargs = {k: v for k, v in kwargs.items() if k in input_vars}
         ret.partial_vars.update(kwargs)
         return ret
 
-    def format(self, arg: str | None = None, **kwargs: Any) -> ChatMessage:
+    def format(self, arg: str | None = None, **kwargs: Any) -> str:
         if arg is not None:
             assert len(kwargs) == 0
             kwargs = validate_template_vars(arg, self.input_vars)
@@ -57,11 +57,49 @@ class MessageTemplate(Flow[Union[str, Dict], ChatMessage]):
             if k in self.input_vars and not isinstance(v, (str, int, float)):
                 logger.warning(f"Format str template with value of complex type with key = '{k}', value = {v}")
 
-        return ChatMessage(role=self.role, content=self.template.format(**kwargs, **self.partial_vars))
+        return self.template.format(**kwargs, **self.partial_vars)
 
     @property
     def input_vars(self) -> set[str]:
         return {var_name for _, var_name, _, _ in Formatter().parse(self.template) if var_name is not None}
+
+
+class MessageTemplate(PromptTemplate[str, ChatMessage]):
+    role: Role
+    template: StrTemplate
+
+    @classmethod
+    def ai_message(cls, template: str):
+        return cls(role=Role.ASSISTANT, template=StrTemplate(template))
+
+    @classmethod
+    def user_message(cls, template: str):
+        return cls(role=Role.USER, template=StrTemplate(template))
+
+    @classmethod
+    def from_arg(cls, arg: str | List[str] | Tuple[str, str] | Dict[str, Any]):
+        if isinstance(arg, str):
+            return cls(role=Role.USER, template=StrTemplate(arg))
+        if isinstance(arg, dict):
+            return cls(role=Role.from_name(arg["role"]), template=arg["content"])
+        assert isinstance(arg, (list, tuple)) and len(arg) == 2
+        return cls(role=Role.from_name(arg[0]), template=StrTemplate(arg[1]))
+
+    def invoke(self, inp: str | Dict) -> ChatMessage:
+        inp = validate_template_vars(inp, self.input_vars)
+        return self.format(**inp)
+
+    def partial_format(self, **kwargs: Any) -> MessageTemplate:
+        ret = self.model_copy(deep=True)
+        ret.template = ret.template.partial_format(**kwargs)
+        return ret
+
+    def format(self, arg: str | None = None, **kwargs: Any) -> ChatMessage:
+        return ChatMessage(role=self.role, content=self.template.format(arg, **kwargs))
+
+    @property
+    def input_vars(self) -> set[str]:
+        return self.template.input_vars
 
     def __add__(self, other: Any) -> ChatTemplate:
         from core.prompts.chat_template import ChatTemplate
