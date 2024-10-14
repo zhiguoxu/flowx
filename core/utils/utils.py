@@ -4,7 +4,8 @@ from typing import Callable, List, Dict, Any, Type, TypeGuard, Iterator, AsyncIt
     Mapping, Literal, TypeVar
 
 from overrides import override
-from pydantic.main import Model, BaseModel
+from pydantic import BaseModel
+Model = TypeVar('Model', bound='BaseModel')
 
 
 def get_method_parameters(obj: Callable[..., Any],

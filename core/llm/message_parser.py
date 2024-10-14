@@ -2,9 +2,8 @@ import json
 from json import JSONDecodeError
 from typing import Dict, Any, List, Type, Union, Iterator
 
-import jsonpatch  # type: ignore[import-untyped]
 from pydantic import Field
-from pydantic.main import BaseModel
+from pydantic import BaseModel
 
 from core.flow.flow import Flow
 from core.messages.chat_message import ChatMessage, ChatMessageChunk
@@ -97,6 +96,8 @@ class StrOutParser(Flow[ChatMessage, str]):
 
 
 def json_transform_parser(inp: Iterator[str], strict: bool = False) -> Iterator[Dict[str, Any]]:
+    import jsonpatch  # type: ignore[import-untyped]
+
     prev_parsed = None
     acc = None
     for chunk in inp:

@@ -43,9 +43,10 @@ class HierarchicalTextSplitter(DocumentSplitter):
         for doc in documents:
             cur_sub_docs = self.doc_splitters[level].split_document([doc])
 
-            if prev_doc:
-                prev_doc.add_next(cur_sub_docs[0])
-            prev_doc = cur_sub_docs[-1]
+            # todo 应该没有必要再把不同文档首尾连接了
+            # if prev_doc:
+            #     prev_doc.add_next(cur_sub_docs[0])
+            # prev_doc = cur_sub_docs[-1]
 
             sub_docs.extend(cur_sub_docs)
 

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from operator import itemgetter
-from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any, Callable, TYPE_CHECKING, Dict
+from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any, Callable, TYPE_CHECKING, Dict, TypeVar
 
 from pydantic import Field, BaseModel, field_validator
-from pydantic.main import Model
 
 from core.callbacks.chat_history import BaseChatMessageHistory
 from core.callbacks.run_stack import current_run
@@ -30,6 +29,8 @@ ToolChoiceLiteral = Literal["none", "auto", "required", "any"]
 ToolChoice = str | ToolChoiceLiteral | bool
 
 logger = get_logger(__name__)
+
+Model = TypeVar('Model', bound='BaseModel')
 
 
 class LLM(Flow[LLMInput, ChatMessage]):
