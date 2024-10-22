@@ -11,9 +11,9 @@
 FlowXの使用も非常に簡単で、以下はエージェントの例です：
 
 ```python
-from core.tool import tool
-from core.llm.openai.openai_llm import OpenAILLM
-from core.agents.agent import Agent
+from auto_flow.core.tool import tool
+from auto_flow.core.llm.openai.openai_llm import OpenAILLM
+from auto_flow.core.agents.agent import Agent
 
 llm = OpenAILLM(model="gpt-4o")
 

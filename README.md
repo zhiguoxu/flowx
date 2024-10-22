@@ -19,9 +19,9 @@ optimizations.
 FlowX is also very easy to use, as demonstrated by the following example of an Agent:
 
 ```python
-from core.tool import tool
-from core.llm.openai.openai_llm import OpenAILLM
-from core.agents.agent import Agent
+from auto_flow.core.tool import tool
+from auto_flow.core.llm.openai.openai_llm import OpenAILLM
+from auto_flow.core.agents.agent import Agent
 
 llm = OpenAILLM(model="gpt-4o")
 

@@ -15,9 +15,9 @@ AgentExecutor 的核心功能，这对于一个想了解 Agent 底层实现，�
 FlowX 的使用也非常简单，以下是一个 Agent 的示例：
 
 ```python
-from core.tool import tool
-from core.llm.openai.openai_llm import OpenAILLM
-from core.agents.agent import Agent
+from auto_flow.core.tool import tool
+from auto_flow.core.llm.openai.openai_llm import OpenAILLM
+from auto_flow.core.agents.agent import Agent
 
 llm = OpenAILLM(model="gpt-4o")
 

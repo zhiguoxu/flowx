@@ -1,6 +1,6 @@
 from typing import Literal
 from pydantic.fields import Field
-from core.tool import tool
+from auto_flow.core.tool import tool
 import json
 
 
