@@ -25,7 +25,7 @@ class IndexingResult(BaseModel):
 
 class Index(BaseModel):
     index_data_manager: IndexDataManager
-    vectorstore: VectorStore
+    vector_store: VectorStore
     source_id_key: str | Callable[[Document], str] | None = None
 
     def add(self,
@@ -84,7 +84,7 @@ class Index(BaseModel):
 
             # 2. Write to vector store
             if docs_to_index:
-                self.vectorstore.add_documents(docs_to_index, ids=ids, batch_size=batch_size)
+                self.vector_store.add_documents(docs_to_index, ids=ids, batch_size=batch_size)
                 num_added += len(docs_to_index) - len(seen_docs)
                 num_updated += len(seen_docs)
 
@@ -100,7 +100,7 @@ class Index(BaseModel):
                 ids_to_delete = self.index_data_manager.list_keys(source_ids=_source_ids, before=index_start_time)
                 if ids_to_delete:
                     # 1. delete from vector store.
-                    self.vectorstore.delete(ids_to_delete)
+                    self.vector_store.delete(ids_to_delete)
                     # 2. delete from index manager.
                     self.index_data_manager.delete(ids_to_delete)
                     num_deleted += len(ids_to_delete)
@@ -111,7 +111,7 @@ class Index(BaseModel):
                               num_deleted=num_deleted)
 
     def delete(self, ids: List[str]) -> None:
-        self.vectorstore.delete(ids)
+        self.vector_store.delete(ids)
         self.index_data_manager.delete(ids)
 
     def delete_by_source(self, source_id: str) -> List[str]:
@@ -120,7 +120,7 @@ class Index(BaseModel):
         return ids
 
     def delete_all(self) -> None:
-        self.vectorstore.delete_all()
+        self.vector_store.delete_all()
         self.index_data_manager.delete_all()
 
     class Config:
