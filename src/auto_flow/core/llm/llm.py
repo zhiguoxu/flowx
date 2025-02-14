@@ -95,8 +95,9 @@ class LLM(Flow[LLMInput, ChatMessage]):
     def stream_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         ...
 
-    def try_add_system_message(self, messages: List[ChatMessage]) -> List[ChatMessage]:
-        system_prompt = self.system_prompt
+    def try_add_system_message(self, messages: List[ChatMessage], system_prompt: str | None = None
+                               ) -> List[ChatMessage]:
+        system_prompt = system_prompt or self.system_prompt
         if system_prompt is None:
             return messages
 

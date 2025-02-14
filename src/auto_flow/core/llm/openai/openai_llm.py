@@ -38,7 +38,7 @@ class OpenAILLM(LLM):
     def _chat_(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         messages = to_chat_messages(messages)
         messages = remove_extra_info(messages)
-        messages = self.try_add_system_message(messages)
+        messages = self.try_add_system_message(messages, kwargs.get('system_prompt'))
         openai_messages = list(map(to_openai_message, messages))
         kwargs = self.get_chat_kwargs(**kwargs)
         assert not (kwargs.get("stream") and kwargs["n"] > 1)

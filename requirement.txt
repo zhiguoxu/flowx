@@ -11,3 +11,5 @@ protobuf
 chromadb
 unstructured
 tenacity
+overrides
+json5
