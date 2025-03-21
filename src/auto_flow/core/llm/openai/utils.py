@@ -14,24 +14,34 @@ from auto_flow.core.tool import Tool
 
 
 def to_openai_message(message: ChatMessage) -> ChatCompletionMessageParam:
-    if message.role == Role.SYSTEM:
-        return ChatCompletionSystemMessageParam(role="system", content=message.content or "")
-    if message.role == Role.USER:
-        return ChatCompletionUserMessageParam(role="user", content=message.content or "")
-    if message.role == Role.ASSISTANT:
-        msg = ChatCompletionAssistantMessageParam(role="assistant", content=message.content)
-        tool_calls: List[ChatCompletionMessageToolCallParam] = []
-        for tool_call in message.tool_calls or []:
-            tool_calls.append(tool_call.model_dump())  # type: ignore[arg-type]
-        if tool_calls:
-            msg["tool_calls"] = tool_calls
-        return msg
-    if message.role == Role.TOOL:
-        assert message.tool_call_id
-        return ChatCompletionToolMessageParam(role="tool",
-                                              content=message.content or "",
-                                              tool_call_id=message.tool_call_id)
-    raise ValueError(f"message: {message}")
+    return message.model_dump(mode="json", exclude_none=True)
+
+    # todo delete
+    # if message.role == Role.SYSTEM:
+    #     return ChatCompletionSystemMessageParam(role="system", content=message.content or "")
+    # if message.role == Role.USER:
+    #     if isinstance(message.content, list):
+    #         content = []
+    #         for item in message.content:
+    #             assert isinstance(item, BaseModel)
+    #             content.append(item.model_dump())
+    #     else:
+    #         content = message.content or ""
+    #     return ChatCompletionUserMessageParam(role="user", content=content)
+    # if message.role == Role.ASSISTANT:
+    #     msg = ChatCompletionAssistantMessageParam(role="assistant", content=message.content)
+    #     tool_calls: List[ChatCompletionMessageToolCallParam] = []
+    #     for tool_call in message.tool_calls or []:
+    #         tool_calls.append(tool_call.model_dump())  # type: ignore[arg-type]
+    #     if tool_calls:
+    #         msg["tool_calls"] = tool_calls
+    #     return msg
+    # if message.role == Role.TOOL:
+    #     assert message.tool_call_id
+    #     return ChatCompletionToolMessageParam(role="tool",
+    #                                           content=message.content or "",
+    #                                           tool_call_id=message.tool_call_id)
+    # raise ValueError(f"message: {message}")
 
 
 def message_from_openai_choice(choice: Choice) -> ChatMessage:
@@ -62,7 +72,7 @@ def chat_result_from_openai(chat_completion: ChatCompletion | Stream[ChatComplet
         for choice in chat_completion.choices:
             result.messages.append(message_from_openai_choice(choice))
             if chat_completion.usage:
-                result.usage = TokenUsage(**chat_completion.usage.model_dump())
+                result.usage = TokenUsage(**chat_completion.usage.model_dump(exclude_none=True))
     else:
         def to_message_stream() -> Iterator[Tuple[ChatMessageChunk, TokenUsage | None]]:
             for completion_chunk in chat_completion:

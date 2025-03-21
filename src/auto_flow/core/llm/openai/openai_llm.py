@@ -20,7 +20,7 @@ class OpenAILLM(LLM):
     max_retries: int = 2
     timeout: float = 20  # seconds
     stream_include_usage: bool = Field(
-        default=True,
+        default=False,
         description="If set, the token usage will return at the end of stream."
                     "Refer to ChatCompletionChunk.usage and ChatCompletionStreamOptionsParam for more info"
     )
@@ -63,6 +63,7 @@ class OpenAILLM(LLM):
             kwargs["stream_options"] = dict(include_usage=True)
 
         if tools := kwargs.pop("tools", None):
+            tools = list(map(Tool.model_validate, tools))
             kwargs["tools"] = tools_to_openai(tools)
 
             # If return direct, parallel tool calls is now allowed.

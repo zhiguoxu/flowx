@@ -259,6 +259,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
         for chunk_message in response_stream_message:
             # Yield streaming content of final answer or thoughts.
             if chunk_message.content:
+                chunk_message.role = Role.ASSISTANT  # fix chat-fire's error return (with chunk.role == None).
                 yield chunk_message, False
                 logger.debug(f"Final answer(thoughts) chunk: {chunk_message.content}")
             # Collect tool calls request message.

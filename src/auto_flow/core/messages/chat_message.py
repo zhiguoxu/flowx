@@ -46,9 +46,25 @@ class Role(str, Enum):
         raise ValueError(f"error role name: {role_name}")
 
 
+class TextContent(BaseModel):
+    text: str
+    type: Literal["text"] = "text"
+
+
+class ImageURL(BaseModel):
+    url: str
+    """Either a URL of the image or the base64 encoded image data."""
+    detail: Literal["auto", "low", "high"] = "auto"
+
+
+class ImageContent(BaseModel):
+    image_url: ImageURL
+    type: Literal["image_url"] = "image_url"
+
+
 class ChatMessage(BaseModel):
     role: Role
-    content: str | None = None
+    content: str | list[TextContent | ImageContent] | None = None
     tool_calls: Sequence[ToolCall] | None = None  # for assistant
     tool_call_id: str | None = None  # for tool
     finish_reason: Literal["stop", "length", "tool_calls", "content_filter"] | str | None = None
@@ -97,13 +113,15 @@ class ChatMessageChunk(BaseModel):
         content: str | None = None
         if self.content is not None or other.content is not None:
             content = (self.content or "") + (other.content or "")
-        tool_calls: List[ToolCallChunk] = list(self.tool_calls or [])
-        for other_tool_call in other.tool_calls or []:
-            if other_tool_call.index >= len(tool_calls):
-                assert other_tool_call.index == len(tool_calls)
-                tool_calls.append(other_tool_call.model_copy(deep=True))
-            else:
-                tool_calls[other_tool_call.index] += other_tool_call
+        tool_calls: List[ToolCallChunk] | None = None
+        if self.tool_calls or other.tool_calls:
+            tool_calls = list(self.tool_calls or [])
+            for other_tool_call in other.tool_calls or []:
+                if other_tool_call.index >= len(tool_calls):
+                    assert other_tool_call.index == len(tool_calls)
+                    tool_calls.append(other_tool_call.model_copy(deep=True))
+                else:
+                    tool_calls[other_tool_call.index] += other_tool_call
 
         return ChatMessageChunk(role=self.role or other.role,
                                 content=content,
