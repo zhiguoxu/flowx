@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from operator import itemgetter
-from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any, Callable, TYPE_CHECKING, Dict, TypeVar
+from typing import Union, Sequence, Tuple, List, Iterator, Literal, Any, Callable, TYPE_CHECKING, Dict, TypeVar, \
+    AsyncIterator
 
 from pydantic import Field, BaseModel, field_validator
 
@@ -87,12 +88,36 @@ class LLM(Flow[LLMInput, ChatMessage]):
         if ENABLE_TRACE:
             current_run().token_usage = token_usage
 
+    async def ainvoke(self, inp: LLMInput, **kwargs: Any) -> ChatMessage:
+        chat_result = await self.async_chat(inp, **kwargs)
+        if ENABLE_TRACE:
+            current_run().token_usage = chat_result.usage
+        return chat_result.messages[0]
+
+    async def astream(self, inp: LLMInput, **kwargs: Any) -> Iterator[ChatMessageChunk]:  # type: ignore[override]
+        result = await self.async_stream_chat(inp, **kwargs)
+        assert result.async_message_stream
+        token_usage = None
+        async for message_chunk, usage in result.async_message_stream:
+            yield message_chunk
+            token_usage = usage
+        if ENABLE_TRACE:
+            current_run().token_usage = token_usage
+
     @abstractmethod
     def chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         ...
 
     @abstractmethod
     def stream_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
+        ...
+
+    @abstractmethod
+    async def async_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
+        ...
+
+    @abstractmethod
+    async def async_stream_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         ...
 
     def try_add_system_message(self, messages: List[ChatMessage], system_prompt: str | None = None
@@ -168,7 +193,7 @@ class LLM(Flow[LLMInput, ChatMessage]):
     @property
     def tokenizer(self) -> Callable[[str], List[int]]:
         """Used to count the number of tokens in documents to constrain them to be under a certain limit."""
-        raise NotImplemented
+        raise NotImplementedError
 
     def token_length(self, text: str) -> int:
         return len(self.tokenizer(text))
@@ -195,6 +220,10 @@ class ChatResult(BaseModel):
     usage: TokenUsage | None = None
 
     message_stream: Iterator[Tuple[ChatMessageChunk, TokenUsage | None]] | None = Field(
+        default=None, description="only return stream of index 0"
+    )
+
+    async_message_stream: AsyncIterator[Tuple[ChatMessageChunk, TokenUsage | None]] | None = Field(
         default=None, description="only return stream of index 0"
     )
 

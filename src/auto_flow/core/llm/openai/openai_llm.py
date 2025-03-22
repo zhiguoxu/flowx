@@ -1,12 +1,13 @@
 from typing import List, Dict, Any, cast, Callable
 
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from openai.types import ChatModel
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import Field
 
 from auto_flow.core.llm.llm import LLM, ChatResult, to_chat_messages, LLMInput
 from auto_flow.core.llm.openai.utils import chat_result_from_openai, to_openai_message, tool_to_openai, tools_to_openai, \
-    tool_choice_to_openai
+    tool_choice_to_openai, async_chat_result_from_openai
 from auto_flow.core.llm.utils import get_tokenizer
 from auto_flow.core.messages.utils import remove_extra_info
 from auto_flow.core.tool import Tool
@@ -35,15 +36,31 @@ class OpenAILLM(LLM):
     def stream_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
         return self._chat_(messages, **{**kwargs, "stream": True})
 
-    def _chat_(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
+    async def async_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
+        return (await self._async_chat_(messages, **kwargs)).merge_chunk()
+
+    async def async_stream_chat(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
+        return await self._async_chat_(messages, **{**kwargs, "stream": True})
+
+    def _prepare_chat_kwargs(self, messages: LLMInput, **kwargs: Any) -> list[ChatCompletionMessageParam]:
         messages = to_chat_messages(messages)
         messages = remove_extra_info(messages)
         messages = self.try_add_system_message(messages, kwargs.get('system_prompt'))
-        openai_messages = list(map(to_openai_message, messages))
+        return list(map(to_openai_message, messages))
+
+    def _chat_(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
+        openai_messages = self._prepare_chat_kwargs(messages, **kwargs)
         kwargs = self.get_chat_kwargs(**kwargs)
         assert not (kwargs.get("stream") and kwargs["n"] > 1)
         resp = self.client.chat.completions.create(messages=openai_messages, **kwargs)
         return chat_result_from_openai(resp)
+
+    async def _async_chat_(self, messages: LLMInput, **kwargs: Any) -> ChatResult:
+        openai_messages = self._prepare_chat_kwargs(messages, **kwargs)
+        kwargs = self.get_chat_kwargs(**kwargs)
+        assert not (kwargs.get("stream") and kwargs["n"] > 1)
+        resp = await self.async_client.chat.completions.create(messages=openai_messages, **kwargs)
+        return async_chat_result_from_openai(resp)
 
     def get_chat_kwargs(self, **kwargs: Any) -> Dict[str, Any]:
         kwargs = {**self.model_dump(exclude_none=True, by_alias=True), **kwargs}
@@ -83,6 +100,13 @@ class OpenAILLM(LLM):
                       base_url=self.base_url,
                       max_retries=self.max_retries,
                       timeout=self.timeout)
+
+    @property
+    def async_client(self):
+        return AsyncOpenAI(api_key=self.api_key,
+                           base_url=self.base_url,
+                           max_retries=self.max_retries,
+                           timeout=self.timeout)
 
     @property
     def openai_tools(self) -> List[Dict[str, Any]] | None:

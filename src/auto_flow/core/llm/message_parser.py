@@ -1,11 +1,11 @@
 import json
 from json import JSONDecodeError
-from typing import Dict, Any, List, Type, Union, Iterator
+from typing import Dict, Any, List, Type, Union, Iterator, AsyncIterator
 
 from pydantic import Field
 from pydantic import BaseModel
 
-from auto_flow.core.flow.flow import Flow
+from auto_flow.core.flow.flow import Flow, Input
 from auto_flow.core.messages.chat_message import ChatMessage, ChatMessageChunk
 from auto_flow.core.utils.parse_json import parse_partial_json
 from auto_flow.core.utils.utils import add
@@ -86,12 +86,21 @@ class MessagePydanticOutParser(Flow[ChatMessage, Output]):
 
 
 class StrOutParser(Flow[ChatMessage, str]):
+
     def invoke(self, inp: ChatMessage) -> str:
+        return inp.content or ""
+
+    async def ainvoke(self, inp: ChatMessage) -> str:
         return inp.content or ""
 
     def transform(self, inp: Iterator[ChatMessageChunk]) -> Iterator[str]:  # type: ignore[override]
         for chunk in inp:
             if chunk.content:
+                yield chunk.content
+
+    async def atransform(self, inp: AsyncIterator[ChatMessageChunk]) -> Iterator[str]:  # type: ignore[override]
+        async for chunk in inp:
+            if chunk.content
                 yield chunk.content
 
 

@@ -15,7 +15,7 @@ class BaseChatMessageHistory(ABC):
 
     def add_message(self, message: ChatMessage) -> None:
         if self.__class__.add_messages == BaseChatMessageHistory.add_messages:
-            raise NotImplemented
+            raise NotImplementedError
         return self.add_messages([message])
 
     def add_messages(self, messages: Sequence[ChatMessage]) -> None:

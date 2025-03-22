@@ -1,6 +1,6 @@
 import itertools
 from threading import Lock
-from typing import TypeVar, Iterator, cast
+from typing import TypeVar, Iterator, cast, AsyncIterator
 
 
 # https://www.kingname.info/2019/11/06/thread-safe-in-tee/
@@ -32,11 +32,24 @@ T = TypeVar("T")
 
 
 def merge_iterator(iterator: Iterator[T]) -> T:
-    """return (has_value, merged_value)"""
-
     init_v = object()
     final_v: T | object = init_v
     for i in iterator:
+        if final_v == init_v:
+            final_v = i
+        else:
+            try:
+                final_v += i  # type: ignore
+            except TypeError:
+                final_v = i
+    assert final_v != init_v, "merge_iterator's input is empty iterator"
+    return cast(T, final_v)
+
+
+async def async_merge_iterator(iterator: AsyncIterator[T]) -> T:
+    init_v = object()
+    final_v: T | object = init_v
+    async for i in iterator:
         if final_v == init_v:
             final_v = i
         else:

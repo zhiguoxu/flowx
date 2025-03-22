@@ -1,5 +1,8 @@
+import asyncio
 from contextlib import contextmanager
-from typing import Any
+from contextvars import copy_context
+from functools import partial
+from typing import Any, ParamSpec, TypeVar, Callable, cast
 
 from pydantic import BaseModel
 
@@ -26,3 +29,20 @@ class ConfigurableField(BaseModel):
     description: str | None = None
     annotation: Any = None
     default: Any = NOT_GIVEN
+
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
+async def run_in_executor(func: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
+    def wrapper() -> T:
+        try:
+            return func(*args, **kwargs)
+        except StopIteration as exc:
+            raise RuntimeError from exc
+
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        cast(Callable[..., T], partial(copy_context().run, wrapper))
+    )

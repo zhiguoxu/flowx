@@ -4,7 +4,7 @@ from __future__ import annotations
 class AddableDict(dict):
     def __add__(self, other: dict) -> AddableDict:
         if not isinstance(other, dict):
-            return NotImplemented
+            return NotImplementedError
 
         # copy self
         result = AddableDict(self)

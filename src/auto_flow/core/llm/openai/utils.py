@@ -1,6 +1,6 @@
-from typing import Iterator, Tuple, List, Dict, Any, Type, get_args
+from typing import Iterator, Tuple, List, Dict, Any, Type, get_args, AsyncIterator
 
-from openai import Stream
+from openai import Stream, AsyncStream
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMessageParam, \
     ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam, ChatCompletionToolMessageParam, \
     ChatCompletionMessageToolCallParam
@@ -84,6 +84,28 @@ def chat_result_from_openai(chat_completion: ChatCompletion | Stream[ChatComplet
                 yield chunk, usage
 
         result.message_stream = to_message_stream()
+    return result
+
+
+def async_chat_result_from_openai(chat_completion: ChatCompletion | AsyncStream[ChatCompletionChunk]) -> ChatResult:
+    result = ChatResult()
+
+    if isinstance(chat_completion, ChatCompletion):
+        for choice in chat_completion.choices:
+            result.messages.append(message_from_openai_choice(choice))
+            if chat_completion.usage:
+                result.usage = TokenUsage(**chat_completion.usage.model_dump(exclude_none=True))
+    else:
+        async def to_message_stream() -> AsyncIterator[Tuple[ChatMessageChunk, TokenUsage | None]]:
+            async for completion_chunk in chat_completion:
+                usage = TokenUsage(**completion_chunk.usage.model_dump()) if completion_chunk.usage else None
+                if completion_chunk.choices:
+                    chunk = message_chunk_from_openai_choice(completion_chunk.choices[0])
+                else:
+                    chunk = ChatMessageChunk()
+                yield chunk, usage
+
+        result.async_message_stream = to_message_stream()
     return result
 
 

@@ -1,12 +1,13 @@
 import functools
 from contextvars import copy_context, ContextVar, Context
-from typing import Any, Union, Callable, TypeVar, ParamSpec, Generator, Iterable, Iterator, cast, Dict, Tuple
+from typing import Any, Union, Callable, TypeVar, ParamSpec, Generator, Iterable, Iterator, cast, Dict, Tuple, \
+    AsyncIterator
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import contextmanager
 
 from auto_flow.core.flow.config import var_flow_config, FlowConfig, var_local_config
 from auto_flow.core.flow.flow import Flow
-from auto_flow.core.utils.utils import is_generator
+from auto_flow.core.utils.utils import is_generator, is_async_generator
 
 Output = TypeVar("Output")
 
@@ -34,17 +35,18 @@ def new_context(obj: Flow) -> Iterator[Context]:
             cache[obj.id] = ctx, count - 1
 
 
+def set_new_context_config(flow: Flow, local_config: FlowConfig | None) -> None:
+    from auto_flow.core.flow.flow import BindingFlow
+    # set var_flow_config (inheritable)
+    config_bound_in_flow: FlowConfig | Dict = (flow.config or {}) if isinstance(flow, BindingFlow) else {}
+    new_config = var_flow_config.get().merge(config_bound_in_flow)
+    var_flow_config.set(new_config)
+
+    # set var_local_config (not inheritable)
+    var_local_config.set(local_config)
+
+
 def flow_context(func: Callable[..., Output | Iterator[Output]]) -> Union[Callable, Callable[[Callable], Callable]]:
-    def set_new_context_config(flow: Flow, local_config: FlowConfig | None) -> None:
-        from auto_flow.core.flow.flow import BindingFlow
-        # set var_flow_config (inheritable)
-        config_bound_in_flow: FlowConfig | Dict = (flow.config or {}) if isinstance(flow, BindingFlow) else {}
-        new_config = var_flow_config.get().merge(config_bound_in_flow)
-        var_flow_config.set(new_config)
-
-        # set var_local_config (not inheritable)
-        var_local_config.set(local_config)
-
     @functools.wraps(func)
     def wrapper(self: Flow, inp: Any, local_config: FlowConfig | None = None, /, **kwargs_: Any) -> Output:
 
@@ -84,6 +86,50 @@ def flow_context(func: Callable[..., Output | Iterator[Output]]) -> Union[Callab
                         break
 
     return stream_wrapper if is_generator(func) else wrapper  # type: ignore[return-value]
+
+
+def async_flow_context(func: Callable[..., Output | AsyncIterator[Output]]
+                       ) -> Union[Callable, Callable[[Callable], Callable]]:
+    @functools.wraps(func)
+    async def async_wrapper(self: Flow, inp: Any, local_config: FlowConfig | None = None, /, **kwargs_: Any) -> Output:
+        async def run(first_enter: bool = True) -> Output:
+            if first_enter:
+                set_new_context_config(self, local_config)
+            return cast(Output, await func(self, inp, **kwargs_))
+
+        with new_context(self) as context:
+            if context is None:
+                # prevent re-enter the same context
+                assert local_config is None, "local_config only pass on the first call"
+                return await run(False)
+            return await context.run(run)
+
+    @functools.wraps(func)
+    async def async_stream_wrapper(self: Flow,
+                                   inp: Any,
+                                   local_config: FlowConfig | None = None, /,
+                                   **kwargs_: Any) -> AsyncIterator[Output]:
+        async def run_stream(first_enter: bool = True) -> AsyncIterator[Output]:
+            if first_enter:
+                set_new_context_config(self, local_config)
+            async for o1 in func(self, inp, **kwargs_):
+                yield o1
+
+        with new_context(self) as context:
+            if context is None:
+                # prevent re-enter the same context
+                assert local_config is None, "local_config only pass first call"
+                async for o2 in run_stream(False):
+                    yield o2
+            else:
+                iterator = run_stream()
+                while True:
+                    try:
+                        yield await context.run(iterator.__anext__)  # 使用 __anext__ 处理异步迭代
+                    except StopAsyncIteration:
+                        break
+
+    return async_stream_wrapper if is_async_generator(func) else async_wrapper  # type: ignore[return-value]
 
 
 P = ParamSpec("P")

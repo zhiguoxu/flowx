@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import inspect
 import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import wait, FIRST_COMPLETED
 from contextlib import contextmanager
+from functools import wraps
 from typing import TypeVar, Generic, Iterator, Callable, cast, Mapping, Any, Awaitable, AsyncIterator, Union, \
     List, Dict, Type, Tuple, TYPE_CHECKING, Sequence
 
@@ -17,10 +19,11 @@ from auto_flow.core.callbacks.run_cache import var_run_cache
 from auto_flow.core.callbacks.trace import trace
 from auto_flow.core.flow.addable_dict import AddableDict
 from auto_flow.core.flow.config import FlowConfig, get_cur_config, var_local_config
-from auto_flow.core.flow.utils import recurse_flow, ConfigurableField
+from auto_flow.core.flow.utils import recurse_flow, ConfigurableField, run_in_executor
 from auto_flow.core.logging import get_logger
-from auto_flow.core.utils.iter import safe_tee, merge_iterator
-from auto_flow.core.utils.utils import filter_kwargs_by_pydantic, is_generator, is_async_generator, to_pydantic_obj_with_init, \
+from auto_flow.core.utils.iter import safe_tee, merge_iterator, async_merge_iterator
+from auto_flow.core.utils.utils import filter_kwargs_by_pydantic, is_generator, is_async_generator, \
+    to_pydantic_obj_with_init, \
     NOT_GIVEN, NotGiven
 
 Input = TypeVar("Input", contravariant=True)
@@ -57,12 +60,27 @@ class Flowable(Generic[Input, Output], ABC):
 
     @abstractmethod
     @empty_flow_context
+    async def ainvoke(self, inp: Input) -> Output:
+        ...
+
+    @abstractmethod
+    @empty_flow_context
     def stream(self, inp: Input) -> Iterator[Output]:
         ...
 
     @abstractmethod
     @empty_flow_context
+    async def astream(self, inp: Input) -> AsyncIterator[Output]:
+        ...
+
+    @abstractmethod
+    @empty_flow_context
     def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
+        ...
+
+    @abstractmethod
+    @empty_flow_context
+    async def atransform(self, inp: AsyncIterator[Input]) -> AsyncIterator[Output]:
         ...
 
     @abstractmethod
@@ -155,7 +173,7 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
     class_type: Type = Flowable
 
     def __init_subclass__(cls, **kwargs):
-        from auto_flow.core.context import flow_context
+        from auto_flow.core.context import flow_context, async_flow_context
         super().__init_subclass__(**kwargs)
 
         # Replace stream and transform with default implement, if they are not override.
@@ -165,10 +183,20 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
             cls.stream = cls._default_stream
         if cls.transform == Flow.transform:
             cls.transform = cls._default_transform
+        if cls.ainvoke == Flow.ainvoke:
+            cls.ainvoke = cls._default_ainvoke
+        if cls.astream == Flow.astream:
+            cls.astream = cls._default_astream
+        if cls.atransform == Flow.atransform:
+            cls.atransform = cls._default_atransform
 
         cls.invoke = cast(Callable[..., Output], flow_context(cls.invoke))
         cls.stream = cast(Callable[..., Iterator[Output]], flow_context(cls.stream))
         cls.transform = cast(Callable[..., Iterator[Output]], flow_context(cls.transform))
+
+        cls.ainvoke = cast(Callable[..., Output], async_flow_context(cls.ainvoke))
+        cls.astream = cast(Callable[..., AsyncIterator[Output]], async_flow_context(cls.astream))
+        cls.atransform = cast(Callable[..., AsyncIterator[Output]], async_flow_context(cls.atransform))
 
     @model_validator(mode="after")
     def set_class_type(self) -> Self:
@@ -176,10 +204,19 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
         return self
 
     def stream(self, inp: Input) -> Iterator[Output]:
-        raise NotImplemented
+        ...
 
     def transform(self, inp: Iterator[Input]) -> Iterator[Output]:
-        raise NotImplemented
+        ...
+
+    def ainvoke(self, inp: Input) -> Output:
+        ...
+
+    async def astream(self, inp: Input) -> AsyncIterator[Output]:
+        ...
+
+    async def atransform(self, inp: AsyncIterator[Input]) -> AsyncIterator[Output]:
+        ...
 
     def _default_stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
         if self.transform is Flow.transform:
@@ -189,6 +226,23 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
 
     def _default_transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
         yield from self.stream(merge_iterator(inp), **kwargs)
+
+    async def _default_ainvoke(self, inp: Input, **kwargs: Any) -> Output:
+        return await run_in_executor(self.invoke, inp, **kwargs)
+
+    async def _default_astream(self, inp: Input, **kwargs: Any) -> AsyncIterator[Output]:
+        if self.atransform is Flow.atransform:
+            yield await self.ainvoke(inp, **kwargs)
+        else:
+            async def gen() -> AsyncIterator[Input]:
+                yield inp
+
+            async for o in self.atransform(gen(), **kwargs):
+                yield o
+
+    async def _default_atransform(self, inp: AsyncIterator[Input], **kwargs: Any) -> AsyncIterator[Output]:
+        async for output in self.astream(await async_merge_iterator(inp), **kwargs):
+            yield output
 
     def __or__(self, other: FlowLike[Any, Other]) -> SequenceFlow[Input, Other]:
         return SequenceFlow(self, other)
@@ -317,17 +371,25 @@ class Flow(BaseModel, Flowable[Input, Output], ABC):
 
 
 class FunctionFlow(Flow[Input, Output]):
-    func: Callable[..., Output] | Callable[..., Iterator[Output]]
+    func: Callable[..., Output] | Callable[..., Iterator[Output]] | None
+    afunc: Callable[..., Awaitable[Output]] | Callable[..., AsyncIterator[Output]] | None
 
     def __init__(self,
                  func: Union[
                      Callable[[Input], Output],
                      Callable[[Input], Iterator[Output]]
-                 ],
+                 ] = None,
+                 afunc: Union[
+                     Callable[[Input], Awaitable[Output]],
+                     Callable[[Input], AsyncIterator[Output]]
+                 ] = None,
                  name: str | None = None):
-        if not name and hasattr(func, "__name__") and func.__name__ != "<lambda>":
+
+        func_exist = func or afunc
+        assert func_exist
+        if not name and hasattr(func_exist, "__name__") and func_exist.__name__ != "<lambda>":
             name = func.__name__
-        super(Flow, self).__init__(func=func, name=name)
+        super(Flow, self).__init__(func=func, afunc=afunc, name=name)
 
     @trace
     def invoke(self, inp: Input, **kwargs: Any) -> Output:
@@ -340,6 +402,39 @@ class FunctionFlow(Flow[Input, Output]):
             # check the recurse limitation
             with recurse_flow(self, inp):
                 output = output.invoke(inp)
+
+        return cast(Output, output)
+
+    def _get_afunc(self, stream=False) -> Callable:
+        if self.afunc:
+            return self.afunc
+        else:
+            if inspect.isgeneratorfunction(self.func):
+                if stream:
+                    logger.error("Cannot stream from a generator function asynchronously."
+                                 "Use .stream() instead.")
+
+                def func(inp_: Input, **kwargs_: Any) -> Output:
+                    return merge_iterator(self.func(inp_, **kwargs_))
+            else:
+                func = self.func
+
+            @wraps(func)
+            async def afunc(*args_: Any, **kwargs_: Any) -> Any:
+                return await run_in_executor(None, func, *args_, **kwargs_)
+
+            return afunc
+
+    async def ainvoke(self, inp: Input, **kwargs: Any) -> Output:
+        afunc = self._get_afunc()
+        output = await afunc(inp, **kwargs)
+        if is_async_generator(afunc):
+            output = await async_merge_iterator(output)
+
+        if isinstance(output, Flow):
+            # check the recurse limitation
+            with recurse_flow(self, inp):
+                output = await output.ainvoke(inp)
 
         return cast(Output, output)
 
@@ -363,6 +458,28 @@ class FunctionFlow(Flow[Input, Output]):
         else:
             yield cast(Output, output)
 
+    async def astream(self, inp: Input, **kwargs: Any) -> AsyncIterator[Output]:
+        afunc = self._get_afunc(True)
+        output = await afunc(inp, **kwargs)
+
+        if is_async_generator(afunc):
+            assert isinstance(output, AsyncIterator)
+
+            async for o in cast(AsyncIterator[Output], output):
+                if isinstance(o, Flow):
+                    # check the recurse limitation
+                    with recurse_flow(self, inp):
+                        async for oo in o.astream(inp):
+                            yield oo
+                else:
+                    yield o
+        elif isinstance(output, Flow):
+            with recurse_flow(self, inp):
+                async for chunk in output.astream(inp, **kwargs):
+                    yield chunk
+        else:
+            yield cast(Output, output)
+
 
 class SequenceFlow(Flow[Input, Output]):
     steps: List[Flowable]
@@ -382,6 +499,14 @@ class SequenceFlow(Flow[Input, Output]):
                 inp = step.invoke(inp)
         return cast(Output, inp)
 
+    async def ainvoke(self, inp: Input, **kwargs: Any) -> Output:
+        for step in self.steps:
+            if self._is_main_step(step):
+                inp = await step.ainvoke(inp, **kwargs)  # Kwargs are only bound to main_step or the first step.
+            else:
+                inp = await step.ainvoke(inp)
+        return cast(Output, inp)
+
     @trace
     def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
         for step in self.steps:
@@ -390,6 +515,15 @@ class SequenceFlow(Flow[Input, Output]):
             else:
                 inp = step.transform(inp)
         yield from cast(Iterator[Output], inp)
+
+    async def atransform(self, inp: AsyncIterator[Input], **kwargs: Any) -> AsyncIterator[Output]:
+        for step in self.steps:
+            if self._is_main_step(step):
+                inp = await step.atransform(inp, **kwargs)
+            else:
+                inp = await step.atransform(inp)
+        async for item in inp:
+            yield item
 
     def __or__(self, other: FlowLike[Any, Other]) -> SequenceFlow[Input, Other]:
         if isinstance(other, SequenceFlow):
@@ -432,14 +566,26 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
         from auto_flow.core.context import get_executor
         with get_executor() as executor:
             futures = [executor.submit(step.invoke, inp) for key, step in self.steps.items()]
+            futures_without_key = [executor.submit(step.invoke, inp) for step in self.steps_without_key]
             result = {
                 key: future.result()
                 for key, future in zip(self.steps.keys(), futures)
             }
-            futures_without_key = [executor.submit(step.invoke, inp) for step in self.steps_without_key]
             for future in futures_without_key:
                 result.update(**future.result())
             return result
+
+    async def ainvoke(self, inp: Input) -> Dict[str, Any]:
+        import asyncio
+        steps = [step for step in self.steps.values()] + self.steps_without_key
+        results = await asyncio.gather(
+            *(step.ainvoke(inp) for step in steps)
+        )
+
+        output = dict(zip(self.steps.keys(), results))
+        for result in results[:len(self.steps)]:
+            output.update(**result)
+        return output
 
     @trace
     def transform(self, inp: Iterator[Input]) -> Iterator[AddableDict]:
@@ -476,6 +622,10 @@ class ParallelFlow(Flow[Input, Dict[str, Any]]):
                     except StopIteration:
                         pass
 
+        # todo
+        # async def atransform(self, inp: AsyncIterator[Input]) -> AsyncIterator[AddableDict]:
+        #     ...
+
 
 class GeneratorFlow(Flow[Input, Output]):
     """Like FunctionFlow, but inner func accept Iterator"""
@@ -509,27 +659,52 @@ class GeneratorFlow(Flow[Input, Output]):
         assert self.generator
         return merge_iterator(self.generator(iter([inp]), **kwargs))
 
+    async def ainvoke(self, inp: Input, **kwargs: Any) -> Output:
+        assert self.agenerator
+        return async_merge_iterator(await self.agenerator(iter([inp]), **kwargs))
+
     @trace
     def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
-        # todo support self.a_transform
         assert self.generator
         yield from self.generator(inp, **kwargs)
+
+    async def atransform(self, inp: AsyncIterator[Input], **kwargs: Any) -> AsyncIterator[Output]:
+        assert self.agenerator
+        async for o in self.agenerator(inp, **kwargs):
+            yield o
 
 
 class BindingFlowBase(Flow[Input, Output], ABC):
     bound: Flowable[Input, Output]
 
+    def get_kwargs(self, **kwargs: Any) -> dict:
+        return kwargs
+
+    def get_bound(self):
+        return self.bound
+
     def invoke(self, inp: Input, **kwargs: Any) -> Output:
         # Transmit the local_config (share it with bound),
         # the local config may be set by its caller by caller.invoke(inp, local_config).
         # Also transmit the kwargs to inner bound.
-        return self.bound.invoke(inp, var_local_config.get(), **kwargs)
+        return self.get_bound().invoke(inp, self._get_local_config(), **{**self.kwargs, **kwargs})
+
+    async def ainvoke(self, inp: Input, **kwargs: Any) -> Output:
+        return await self.get_bound().ainvoke(inp, self._get_local_config(), **self.get_kwargs(**kwargs))
 
     def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
-        yield from self.bound.stream(inp, var_local_config.get(), **kwargs)
+        yield from self.get_bound().stream(inp, self._get_local_config(), **self.get_kwargs(**kwargs))
+
+    async def astream(self, inp: Input, **kwargs: Any) -> AsyncIterator[Output]:
+        async for o in self.get_bound().astream(inp, self._get_local_config(), **self.get_kwargs(**kwargs)):
+            yield o
 
     def transform(self, inp: Iterator[Input], **kwargs) -> Iterator[Output]:
-        yield from self.bound.transform(inp, var_local_config.get(), **kwargs)
+        yield from self.get_bound().transform(inp, self._get_local_config(), **{**self.kwargs, **kwargs})
+
+    async def atransform(self, inp: AsyncIterator[Input], **kwargs) -> AsyncIterator[Output]:
+        async for o in self.get_bound().atransform(inp, self._get_local_config(), **self.get_kwargs(**kwargs)):
+            yield o
 
     @contextmanager
     def get_run(self) -> Iterator[Run]:
@@ -576,29 +751,10 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         init_kwargs = filter_kwargs_by_pydantic(self, locals(), exclude_none=True)
         super().__init__(**init_kwargs)
 
-    def invoke(self, inp: Input, **kwargs: Any) -> Output:
-        return self._get_bound().invoke(inp, self._get_local_config(), **{**self.kwargs, **kwargs})
-        # Not every invoke accept **kwargs, so if you bind kwargs, it must be accepted by inner flow.
+    def get_kwargs(self, **kwargs: Any) -> dict:
+        return {**self.kwargs, **kwargs}
 
-    def stream(self, inp: Input, **kwargs: Any) -> Iterator[Output]:
-        yield from self._get_bound().stream(inp, self._get_local_config(), **{**self.kwargs, **kwargs})
-
-    def transform(self, inp: Iterator[Input], **kwargs: Any) -> Iterator[Output]:
-        yield from self._get_bound().transform(inp, self._get_local_config(), **{**self.kwargs, **kwargs})
-
-    def with_retry(self, **kwargs: Any) -> BindingFlow[Input, Output]:  # type: ignore[override]
-        return BindingFlow(
-            bound=self.bound.with_retry(**kwargs),
-            kwargs=self.kwargs,
-            config=self.config,
-            local_config=self.local_config
-        )
-
-    def _get_local_config(self, extra_local_config: Dict | FlowConfig | None = None) -> FlowConfig | None:
-        assert extra_local_config is None
-        return super()._get_local_config(self.local_config)
-
-    def _get_bound(self) -> Flowable[Input, Output]:
+    def get_bound(self) -> Flowable[Input, Output]:
         configurable = get_cur_config().configurable
         update_fields = {}
         for k, field in self.fields.items():
@@ -617,11 +773,23 @@ class BindingFlow(BindingFlowBase[Input, Output]):
         return to_pydantic_obj_with_init(self.bound.__class__,
                                          {**self.bound.model_dump(exclude_unset=True), **update_fields})
 
+    def with_retry(self, **kwargs: Any) -> BindingFlow[Input, Output]:  # type: ignore[override]
+        return BindingFlow(
+            bound=self._get_bound().with_retry(**kwargs),
+            kwargs=self.kwargs,
+            config=self.config,
+            local_config=self.local_config
+        )
+
+    def _get_local_config(self, extra_local_config: Dict | FlowConfig | None = None) -> FlowConfig | None:
+        assert extra_local_config is None
+        return super()._get_local_config(self.local_config)
+
     def __getattr__(self, name: str) -> Any:
         if name in self.kwargs:
             return self.kwargs[name]
 
-        return getattr(self.bound, name)
+        return getattr(self.get_bound(), name)
 
 
 class PickFlow(Flow[Dict[str, Any], Dict[str, Any]]):
@@ -632,7 +800,15 @@ class PickFlow(Flow[Dict[str, Any], Dict[str, Any]]):
         assert isinstance(inp, dict), "The input of PickFlow must be a dict."
         return self._pick(inp)
 
+    async def ainvoke(self, inp: Dict[str, Any]) -> Dict[str, Any]:
+        assert isinstance(inp, dict), "The input of PickFlow must be a dict."
+        return self._pick(inp)
+
     def transform(self, inp: Iterator[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
+        for item in inp:
+            yield AddableDict(self._pick(item))
+
+    async def atransform(self, inp: Iterator[Dict[str, Any]]) -> AsyncIterator[Dict[str, Any]]:
         for item in inp:
             yield AddableDict(self._pick(item))
 
@@ -649,6 +825,13 @@ class IdentityFlow(Flow[Other, Other]):
 
     def transform(self, inp: Iterator[Other]) -> Iterator[Other]:
         yield from inp
+
+    async def ainvoke(self, inp: Other) -> Other:
+        return inp
+
+    async def atransform(self, inp: AsyncIterator[Other]) -> AsyncIterator[Other]:
+        async for i in inp:
+            yield i
 
     def assign(self, **kwargs: FlowLike[Input, Any]) -> ParallelFlow[Input]:
         return ParallelFlow(steps=kwargs, steps_without_key=[identity.drop(list(kwargs.keys()))])
