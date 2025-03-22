@@ -100,7 +100,7 @@ class StrOutParser(Flow[ChatMessage, str]):
 
     async def atransform(self, inp: AsyncIterator[ChatMessageChunk]) -> Iterator[str]:  # type: ignore[override]
         async for chunk in inp:
-            if chunk.content
+            if chunk.content:
                 yield chunk.content
 
 
