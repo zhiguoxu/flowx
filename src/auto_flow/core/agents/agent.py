@@ -160,13 +160,15 @@ class Agent(Flow[LLMInput, ChatMessage]):
         return_direct = False
         # Prevents calling the same tools with the same args.
         used_tool_calls: Dict[str, set[str]] = defaultdict(set)
+        cur_time = time.time()
         while (has_observation and
                not return_direct and
                loop_count <= self.max_iterations and
                time_elapsed <= self.max_execution_time):
             loop_count += 1
             has_observation = False
-            logger.debug(f"\n\n-------------- Turn {loop_count}  ---------------\n")
+            logger.debug(f"\n\n-------------- Turn {loop_count}  --------------- {time.time() - cur_time:.2f}\n")
+            cur_time = time.time()
 
             # 1. Check and disable tool calls, and we hope it will never trigger tool calls in the following loop.
             if loop_count == self.max_iterations or disable_tool_calls:
@@ -190,7 +192,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
             else:
                 stream_response = llm_with_kwargs.stream(messages)
                 step_output = self._stream_run_step(
-                    stream_response, used_tool_calls, callable_tools)  # type: ignore[assignment, arg-type]
+                    stream_response, used_tool_calls, callable_tools, cur_time)  # type: ignore[assignment, arg-type]
 
             # 4. Yield new messages and collect message for next turn.
             step_message_cache = None
@@ -250,7 +252,8 @@ class Agent(Flow[LLMInput, ChatMessage]):
     def _stream_run_step(self,
                          response_stream_message: Iterator[ChatMessageChunk],
                          used_tool_calls: Dict[str, set[str]],
-                         tools: List[Tool] | None
+                         tools: List[Tool] | None,
+                         cur_time: float
                          ) -> Iterator[Tuple[ChatMessageChunk | ChatMessage, bool]]:  # [, is repeated tool call]
         """Return ChatMessageChunk for streaming final answer or thoughts,
         and return ChatMessage for tool calls and observation"""
@@ -261,7 +264,7 @@ class Agent(Flow[LLMInput, ChatMessage]):
             if chunk_message.content:
                 chunk_message.role = Role.ASSISTANT  # fix chat-fire's error return (with chunk.role == None).
                 yield chunk_message, False
-                logger.debug(f"Final answer(thoughts) chunk: {chunk_message.content}")
+                logger.debug(f"Final answer(thoughts) chunk: {chunk_message.content} - {time.time() - cur_time:.2f}")
             # Collect tool calls request message.
             chunk_message_cache = add(chunk_message_cache, chunk_message)
 
