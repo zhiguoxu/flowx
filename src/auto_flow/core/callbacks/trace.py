@@ -14,7 +14,7 @@ Output = TypeVar("Output", covariant=True)
 
 # Trace is enabled by default.
 # Disable trace maybe helpful when debugging the code, because it will reduce the deep of call stack.
-ENABLE_TRACE = env_is_set("FLOW_ENABLE_TRACE", True)
+ENABLE_TRACE = env_is_set("FLOW_ENABLE_TRACE", False)
 
 
 def trace(func: Callable[..., Output]) -> Callable[..., Output]:
