@@ -47,6 +47,7 @@ def to_openai_message(message: ChatMessage) -> ChatCompletionMessageParam:
 def message_from_openai_choice(choice: Choice) -> ChatMessage:
     message = ChatMessage(role=Role.from_name(choice.message.role),
                           content=choice.message.content,
+                          reasoning_content=choice.message.model_extra.get("reasoning_content"),
                           finish_reason=choice.finish_reason)
     tool_calls = [ToolCall(**tool_call.model_dump()) for tool_call in choice.message.tool_calls or []]
     if tool_calls:
@@ -58,6 +59,7 @@ def message_chunk_from_openai_choice(choice_chunk: ChoiceChunk) -> ChatMessageCh
     role = Role.from_name(choice_chunk.delta.role) if choice_chunk.delta.role else None
     message_chunk = ChatMessageChunk(role=role,
                                      content=choice_chunk.delta.content,
+                                     reasoning_content=choice_chunk.delta.model_extra.get("reasoning_content"),
                                      finish_reason=choice_chunk.finish_reason)
     tool_calls = [ToolCallChunk(**tool_call.model_dump()) for tool_call in choice_chunk.delta.tool_calls or []]
     if tool_calls:
@@ -109,6 +111,17 @@ def async_chat_result_from_openai(chat_completion: ChatCompletion | AsyncStream[
     return result
 
 
+def fix_pydantic_property_schema(property: dict) -> bool:
+    property.pop('title', None)
+    property.pop('default', None)
+    if any_of := property.pop('anyOf', None):
+        assert any_of[0]['type'] != 'null'
+        assert any_of[1]['type'] == 'null'
+        property['type'] = any_of[0]['type']
+        return False
+    return True
+
+
 def get_tool_by_pydantic(pydantic_class: Type[BaseModel]) -> Dict[str, Any]:
     schema = pydantic_class.model_json_schema()
     function = {
@@ -116,6 +129,15 @@ def get_tool_by_pydantic(pydantic_class: Type[BaseModel]) -> Dict[str, Any]:
         "description": schema.pop("description"),
         "parameters": schema
     }
+
+    properties = schema['properties']
+    required = []
+    for key, value in properties.items():
+        if fix_pydantic_property_schema(value):
+            required.append(key)
+    if required:
+        schema['required'] = required
+
     return {"type": "function", "function": function}
 
 

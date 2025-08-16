@@ -65,6 +65,8 @@ class LLM(Flow[LLMInput, ChatMessage]):
 
     json_mode: bool = False
 
+    extra_body: dict | None = None
+
     @field_validator('tools')
     @classmethod
     def validate_tools(cls, tools: List[Tool | Callable]) -> List[Tool]:

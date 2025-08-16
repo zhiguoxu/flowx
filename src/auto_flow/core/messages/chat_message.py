@@ -65,6 +65,7 @@ class ImageContent(BaseModel):
 class ChatMessage(BaseModel):
     role: Role
     content: str | list[TextContent | ImageContent] | None = None
+    reasoning_content: str | None = None
     tool_calls: Sequence[ToolCall] | None = None  # for assistant
     tool_call_id: str | None = None  # for tool
     finish_reason: Literal["stop", "length", "tool_calls", "content_filter"] | str | None = None
@@ -104,6 +105,7 @@ class ToolCallChunk(BaseModel):
 class ChatMessageChunk(BaseModel):
     role: Role | None = None
     content: str | None = None
+    reasoning_content: str | None = None
     tool_calls: Sequence[ToolCallChunk] | None = None  # for assistant
     tool_call_id: str | None = None  # for tool
     finish_reason: Literal["stop", "length", "tool_calls"] | str | None = None
@@ -111,8 +113,11 @@ class ChatMessageChunk(BaseModel):
 
     def __add__(self, other: ChatMessageChunk) -> ChatMessageChunk:
         content: str | None = None
+        reasoning_content: str | None = None
         if self.content is not None or other.content is not None:
             content = (self.content or "") + (other.content or "")
+        if self.reasoning_content is not None or other.reasoning_content is not None:
+            reasoning_content = (self.reasoning_content or "") + (other.reasoning_content or "")
         tool_calls: List[ToolCallChunk] | None = None
         if self.tool_calls or other.tool_calls:
             tool_calls = list(self.tool_calls or [])
@@ -125,6 +130,7 @@ class ChatMessageChunk(BaseModel):
 
         return ChatMessageChunk(role=self.role or other.role,
                                 content=content,
+                                reasoning_content=reasoning_content,
                                 tool_calls=tool_calls,
                                 tool_call_id=self.tool_call_id or other.tool_call_id,
                                 finish_reason=self.finish_reason or other.finish_reason,

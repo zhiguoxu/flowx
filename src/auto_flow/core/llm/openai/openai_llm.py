@@ -74,7 +74,9 @@ class OpenAILLM(LLM):
         # with openai interface compatible server by using 'extra_body'.
         if repetition_penalty := kwargs.pop("repetition_penalty", None):
             kwargs["presence_penalty"] = repetition_penalty
-            kwargs["extra_body"] = dict(repetition_penalty=repetition_penalty)  # todo remove
+            extra_body = kwargs.get('extra_body', {})
+            extra_body.update(repetition_penalty=repetition_penalty)
+            kwargs["extra_body"] = extra_body
 
         if kwargs.get("stream_include_usage"):
             kwargs["stream_options"] = dict(include_usage=True)
@@ -86,6 +88,7 @@ class OpenAILLM(LLM):
             # If return direct, parallel tool calls is now allowed.
             if any(tool.return_direct for tool in (cast(List[Tool], tools))):
                 kwargs["parallel_tool_calls"] = False
+
         if (tool_choice := kwargs.pop("tool_choice", None)) is not None:
             kwargs["tool_choice"] = tool_choice_to_openai(tool_choice, tools)
 

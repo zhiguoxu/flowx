@@ -67,7 +67,7 @@ def flow_context(func: Callable[..., Output | Iterator[Output]]) -> Union[Callab
                        inp: Any,
                        local_config: FlowConfig | None = None, /,
                        **kwargs_: Any) -> Iterator[Output]:
-        def run_stream(first_enter: bool = True) -> Iterator[Output]:
+        def run_stream(first_enter: bool = True) -> AsyncIterator[Output]:
             if first_enter:
                 set_new_context_config(self, local_config)
             yield from cast(Iterator[Output], func(self, inp, **kwargs_))

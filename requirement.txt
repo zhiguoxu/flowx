@@ -9,7 +9,7 @@ transformers
 sentencepiece
 protobuf
 chromadb
-unstructured
-tenacity
+#unstructured
+#tenacity
 overrides
 json5
